@@ -1,0 +1,2 @@
+- [agent-1] 2026-11-08: The repository root has no `CONTRACT.md`, and the authoritative shared types are currently at `types.ts` instead of `client/src/shared/types/index.ts` | proposed fix: add the contract at the repository root and move the types file to its documented path without changing its contents | blocking: no
+- [agent-1] 2026-11-08: The contract requires loading `server/.env`, but does not list a dotenv dependency | proposed fix: add `dotenv` to the permitted server dependencies or specify a supported Node-native `.env` loading mechanism | blocking: no
