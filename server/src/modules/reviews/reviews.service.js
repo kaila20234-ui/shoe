@@ -1,4 +1,3 @@
-import mongoose from 'mongoose';
 import { Order, Product, Review } from '../../models/index.js';
 import ApiError from '../../utils/ApiError.js';
 import { buildMeta, parsePagination } from '../../utils/paginate.js';
@@ -46,30 +45,25 @@ export async function listForModeration(query) {
 }
 
 export async function moderateReview(id, status) {
-  const session = await mongoose.startSession();
-  let review;
-  try {
-    await session.withTransaction(async () => {
-      review = await Review.findById(id).session(session);
-      if (!review) throw new ApiError(404, 'NOT_FOUND', 'Review not found');
-      if (review.status !== 'pending') throw new ApiError(409, 'CONFLICT', 'Review has already been moderated');
-      review.status = status;
-      await review.save({ session });
-      if (status === 'approved') {
-        const approved = await Review.find({ productId: review.productId, status: 'approved' }).session(session);
-        const ratingCount = approved.length;
-        const ratingAverage = ratingCount
-          ? Math.round(approved.reduce((sum, item) => sum + item.rating, 0) / ratingCount * 10) / 10
-          : 0;
-        await Product.updateOne(
-          { _id: review.productId },
-          { $set: { ratingAverage, ratingCount } },
-          { session },
-        );
-      }
-    });
-  } finally {
-    await session.endSession();
+  const review = await Review.findOneAndUpdate(
+    { _id: id, status: 'pending' },
+    { $set: { status } },
+    { new: true },
+  );
+  if (!review) {
+    if (!await Review.exists({ _id: id })) throw new ApiError(404, 'NOT_FOUND', 'Review not found');
+    throw new ApiError(409, 'CONFLICT', 'Review has already been moderated');
+  }
+  if (status === 'approved') {
+    const approved = await Review.find({ productId: review.productId, status: 'approved' });
+    const ratingCount = approved.length;
+    const ratingAverage = ratingCount
+      ? Math.round(approved.reduce((sum, item) => sum + item.rating, 0) / ratingCount * 10) / 10
+      : 0;
+    await Product.updateOne(
+      { _id: review.productId },
+      { $set: { ratingAverage, ratingCount } },
+    );
   }
   return review;
 }

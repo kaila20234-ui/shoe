@@ -25,7 +25,7 @@ export async function validateForUser(userId, code) {
   return { code: code.toUpperCase(), discountAmount };
 }
 
-export async function reserveDiscountUse(discountId, session, subtotal) {
+export async function reserveDiscountUse(discountId, subtotal) {
   const result = await Discount.findOneAndUpdate(
     {
       _id: discountId,
@@ -37,7 +37,7 @@ export async function reserveDiscountUse(discountId, session, subtotal) {
       $or: [{ maxUses: { $exists: false } }, { $expr: { $lt: ['$usedCount', '$maxUses'] } }],
     },
     { $inc: { usedCount: 1 } },
-    { new: true, session },
+    { new: true },
   );
   if (!result) throw new ApiError(400, 'VALIDATION_ERROR', 'Discount code is no longer available');
   return result;

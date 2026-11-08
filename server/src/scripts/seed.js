@@ -1,136 +1,104 @@
 import bcrypt from 'bcryptjs';
 import mongoose from 'mongoose';
 import { connectDatabase } from '../config/db.js';
-import { AuditLog, Cart, DeliveryZone, Discount, Order, Product, ReturnRequest, Review, Transaction, User } from '../models/index.js';
+import { loadEnv } from '../config/env.js';
+import { DeliveryZone, Discount, Product, User } from '../models/index.js';
 
-const password = await bcrypt.hash('Passw0rd!123', 12);
-const users = [
-  { name: 'Ada Okafor', email: 'customer@shoestore.test', role: 'customer' },
-  { name: 'Tunde Adeyemi', email: 'admin@shoestore.test', role: 'admin' },
-  { name: 'Ngozi Eze', email: 'owner@shoestore.test', role: 'owner' },
+loadEnv();
+
+const passwordHash = await bcrypt.hash('Passw0rd!123', 12);
+const accounts = [
+  { name: 'Shoe Store Customer', email: 'customer@shoestore.test', role: 'customer' },
+  { name: 'Shoe Store Admin', email: 'admin@shoestore.test', role: 'admin' },
+  { name: 'Shoe Store Owner', email: 'owner@shoestore.test', role: 'owner' },
 ];
 
-const zones = [
-  {
-    name: 'Lagos',
-    states: ['Lagos'],
-    fee: 250000,
-    estimatedDays: '1-2 days',
-    isActive: true,
-  },
-  {
-    name: 'South-West',
-    states: ['Ekiti', 'Ogun', 'Ondo', 'Osun', 'Oyo'],
-    fee: 400000,
-    estimatedDays: '2-4 days',
-    isActive: true,
-  },
-  {
-    name: 'Rest of Nigeria',
-    states: [
-      'Abia', 'Adamawa', 'Akwa Ibom', 'Anambra', 'Bauchi', 'Bayelsa', 'Benue', 'Borno',
-      'Cross River', 'Delta', 'Ebonyi', 'Edo', 'Enugu', 'Federal Capital Territory',
-      'Gombe', 'Imo', 'Jigawa', 'Kaduna', 'Kano', 'Katsina', 'Kebbi', 'Kogi', 'Kwara',
-      'Nasarawa', 'Niger', 'Plateau', 'Rivers', 'Sokoto', 'Taraba', 'Yobe', 'Zamfara',
-    ],
-    fee: 650000,
-    estimatedDays: '3-7 days',
-    isActive: true,
-  },
+const productSeeds = [
+  ['Air Runner One', 'Nike', 'men', 'sneakers', 850000],
+  ['Court Classic', 'Adidas', 'men', 'sneakers', 720000],
+  ['Metro Leather', 'Clarks', 'men', 'formal', 940000],
+  ['Everyday Slide', 'Puma', 'men', 'sandals', 380000],
+  ['Trail Motion', 'Nike', 'men', 'sports', 1100000],
+  ['Chelsea Street Boot', 'Timberland', 'men', 'boots', 1350000],
+  ['Cloud Walk', 'New Balance', 'women', 'sneakers', 790000],
+  ['City Ballet Flat', 'Clarks', 'women', 'formal', 650000],
+  ['Summer Comfort Sandal', 'Puma', 'women', 'sandals', 420000],
+  ['Active Pace', 'Adidas', 'women', 'sports', 890000],
+  ['Junior Sprint', 'Nike', 'kids', 'sneakers', 520000],
+  ['Little Trek', 'Timberland', 'kids', 'boots', 680000],
 ];
 
-const discounts = [
-  { code: 'WELCOME10', type: 'percentage', value: 10, minSubtotal: 0, isActive: true },
-  { code: 'FREESHIP', type: 'fixed', value: 150000, minSubtotal: 0, isActive: true },
-];
-
-const products = [
-  ['Urban Pace Runner', 'urban-pace-runner', 'StrideLab', 'men', 'sneakers', 1850000, ['black', 'white'], [40, 41, 42, 43], [7, 12, 0]],
-  ['Classic Court Low', 'classic-court-low', 'Northline', 'women', 'sneakers', 1620000, ['white', 'navy'], [36, 37, 38, 39], [2, 15, 20]],
-  ['Everyday Slide', 'everyday-slide', 'Coaststep', 'men', 'sandals', 650000, ['brown', 'black'], [40, 42, 44], [11, 0, 5]],
-  ['City Formal Oxford', 'city-formal-oxford', 'Alder & Row', 'men', 'formal', 2450000, ['black'], [40, 41, 42, 43], [4, 8, 13]],
-  ['Trailbound Hiker', 'trailbound-hiker', 'TerraForm', 'men', 'boots', 3120000, ['olive', 'charcoal'], [41, 42, 43, 44], [0, 6, 9]],
-  ['Junior Dash', 'junior-dash', 'StrideLab', 'kids', 'sports', 980000, ['blue', 'coral'], [30, 31, 32, 33], [18, 12, 5]],
-  ['Softstep Ballet Flat', 'softstep-ballet-flat', 'Mira Lane', 'women', 'formal', 1190000, ['tan', 'black'], [36, 37, 38, 39], [1, 7, 11]],
-  ['Weekend Trek Sandal', 'weekend-trek-sandal', 'Coaststep', 'women', 'sandals', 870000, ['sand', 'teal'], [37, 38, 39, 40], [16, 8, 3]],
-  ['Courtline High Top', 'courtline-high-top', 'Northline', 'men', 'sneakers', 2240000, ['red', 'white'], [40, 41, 42, 43], [6, 14, 2]],
-  ['Little Explorer Boot', 'little-explorer-boot', 'TerraForm', 'kids', 'boots', 1380000, ['brown', 'navy'], [29, 30, 31, 32], [10, 0, 4]],
-  ['Tempo Knit Trainer', 'tempo-knit-trainer', 'StrideLab', 'women', 'sports', 1980000, ['lilac', 'black'], [37, 38, 39, 40], [9, 17, 6]],
-  ['Office Ease Loafer', 'office-ease-loafer', 'Alder & Row', 'women', 'formal', 2160000, ['burgundy', 'black'], [36, 37, 38, 39], [3, 10, 15]],
-];
+const imageUrl = 'https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&w=900&q=80';
 
 async function seed() {
   await connectDatabase();
-
-  await Promise.all(
-    [User, Product, Cart, Order, Transaction, Discount, DeliveryZone, Review, ReturnRequest, AuditLog]
-      .map((model) => model.createIndexes()),
-  );
-
-  for (const user of users) {
-    await User.updateOne(
-      { email: user.email },
-      { $setOnInsert: { ...user, passwordHash: password, isActive: true, addresses: [], wishlist: [] } },
-      { upsert: true },
+  for (const account of accounts) {
+    await User.findOneAndUpdate(
+      { email: account.email },
+      { $set: { ...account, passwordHash, isActive: true } },
+      { upsert: true, new: true, setDefaultsOnInsert: true },
     );
   }
 
-  for (const zone of zones) {
-    await DeliveryZone.updateOne({ name: zone.name }, { $set: zone }, { upsert: true });
-  }
-  for (const discount of discounts) {
-    await Discount.updateOne(
-      { code: discount.code },
-      { $set: discount, $setOnInsert: { usedCount: 0 } },
-      { upsert: true },
-    );
-  }
-
-  for (const [index, product] of products.entries()) {
-    const [name, slug, brand, audience, type, price, colors, sizes, stockLevels] = product;
-    const variants = colors.flatMap((color, colorIndex) =>
-      sizes.map((size, sizeIndex) => ({
-        sku: `${brand.replace(/[^A-Z0-9]/gi, '').toUpperCase().slice(0, 3)}-${String(index + 1).padStart(2, '0')}-${color.slice(0, 3).toUpperCase()}-${size}`,
-        size,
-        color,
-        stock: stockLevels[(colorIndex + sizeIndex) % stockLevels.length],
-      })),
-    );
-    const images = [
-      `https://placehold.co/800x800?text=${encodeURIComponent(name)}`,
-      `https://placehold.co/800x800?text=${encodeURIComponent(`${name} side view`)}`,
-      `https://placehold.co/800x800?text=${encodeURIComponent(`${name} detail`)}`,
-    ];
-
-    await Product.updateOne(
+  for (const [index, [name, brand, audience, type, price]] of productSeeds.entries()) {
+    const baseSku = `SH-${String(index + 1).padStart(3, '0')}`;
+    const variants = [39, 40, 41, 42, 43].map((size) => ({
+      sku: `${baseSku}-${size}`,
+      size,
+      color: index % 2 ? 'Black' : 'White',
+      stock: 8 + (index % 5),
+    }));
+    const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    await Product.findOneAndUpdate(
       { slug },
       {
-        $setOnInsert: {
+        $set: {
           name,
-          description: `${name} combines everyday comfort with a versatile design, made for life on the move.`,
+          slug,
+          description: `${name} by ${brand}, made for everyday comfort and dependable wear.`,
           brand,
           audience,
           type,
           price,
-          images,
+          images: [imageUrl],
           variants,
           isActive: true,
-          ratingAverage: 0,
-          ratingCount: 0,
         },
+        $setOnInsert: { ratingAverage: 0, ratingCount: 0 },
       },
-      { upsert: true },
+      { upsert: true, new: true, runValidators: true, setDefaultsOnInsert: true },
     );
   }
 
-  console.info('Seed data is ready.');
+  const zones = [
+    { name: 'Lagos', states: ['Lagos'], fee: 250000, estimatedDays: '1-2 days', isActive: true },
+    { name: 'South West', states: ['Ogun', 'Oyo', 'Osun', 'Ondo', 'Ekiti'], fee: 400000, estimatedDays: '2-4 days', isActive: true },
+    { name: 'Nationwide', states: ['Abia', 'Adamawa', 'Akwa Ibom', 'Anambra', 'Bauchi', 'Bayelsa', 'Benue', 'Borno', 'Cross River', 'Delta', 'Ebonyi', 'Edo', 'Enugu', 'FCT', 'Gombe', 'Imo', 'Jigawa', 'Kaduna', 'Kano', 'Katsina', 'Kebbi', 'Kogi', 'Kwara', 'Nasarawa', 'Niger', 'Plateau', 'Rivers', 'Sokoto', 'Taraba', 'Yobe', 'Zamfara'], fee: 650000, estimatedDays: '4-7 days', isActive: true },
+  ];
+  for (const zone of zones) {
+    await DeliveryZone.findOneAndUpdate({ name: zone.name }, { $set: zone }, { upsert: true, new: true });
+  }
+
+  const discounts = [
+    { code: 'WELCOME10', type: 'percentage', value: 10, minSubtotal: 0, maxUses: 1000, usedCount: 0, isActive: true },
+    { code: 'SHOE5000', type: 'fixed', value: 500000, minSubtotal: 1000000, maxUses: 500, usedCount: 0, isActive: true },
+  ];
+  for (const discount of discounts) {
+    await Discount.findOneAndUpdate(
+      { code: discount.code },
+      { $set: { ...discount, usedCount: 0 } },
+      { upsert: true, new: true, setDefaultsOnInsert: true },
+    );
+  }
+
+  console.info(`Seeded ${accounts.length} accounts, ${productSeeds.length} products, ${zones.length} delivery zones, and ${discounts.length} discounts`);
+  await mongoose.disconnect();
 }
 
-seed()
-  .catch((error) => {
-    console.error('Unable to seed database:', error);
-    process.exitCode = 1;
-  })
-  .finally(async () => {
-    await mongoose.disconnect();
-  });
+try {
+  await seed();
+} catch (error) {
+  await mongoose.disconnect();
+  console.error(error);
+  process.exitCode = 1;
+}

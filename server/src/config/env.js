@@ -1,11 +1,14 @@
 import 'dotenv/config';
 
-const required = ['MONGODB_URI', 'JWT_SECRET'];
-const missing = required.filter((name) => !process.env[name]);
-
-if (missing.length > 0) {
-  throw new Error(`Missing required environment variables: ${missing.join(', ')}`);
+export function loadEnv() {
+  const required = ['MONGODB_URI', 'JWT_SECRET'];
+  const missing = required.filter((name) => !process.env[name]);
+  if (missing.length > 0) {
+    throw new Error(`Missing required environment variables: ${missing.join(', ')}`);
+  }
 }
+
+loadEnv();
 
 export const config = {
   port: Number(process.env.PORT || 5000),

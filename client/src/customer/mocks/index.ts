@@ -498,9 +498,19 @@ export const handlers = [
       const body = await json<{ orderId: string; items: ReturnRequest['items']; reason: string }>();
       const order = orders.find((candidate) => candidate.id === body.orderId && candidate.customerId === activeUser?.id && candidate.status === 'delivered');
       if (!order) return failure('VALIDATION_ERROR', 'Only delivered orders can be returned', 400);
-      const request: ReturnRequest = { id: `return-${Date.now()}`, orderId: order.id, orderNumber: order.orderNumber, customerId: order.customerId, ...body, status: 'requested', createdAt: now, updatedAt: now };
-      returnRequests = [request, ...returnRequests];
-      return success(request);
+      const newRequest: ReturnRequest = {
+        id: `return-${Date.now()}`,
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        customerId: order.customerId,
+        items: body.items,
+        reason: body.reason,
+        status: 'requested',
+        createdAt: now,
+        updatedAt: now,
+      };
+      returnRequests = [newRequest, ...returnRequests];
+      return success(newRequest);
     }
 
     return;

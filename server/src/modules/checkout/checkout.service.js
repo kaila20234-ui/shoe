@@ -1,5 +1,4 @@
 import { randomInt } from 'node:crypto';
-import mongoose from 'mongoose';
 import { Cart, DeliveryZone, Discount, Order, Product, Transaction, User } from '../../models/index.js';
 import ApiError from '../../utils/ApiError.js';
 import { sendMail } from '../../utils/mailer.js';
@@ -24,12 +23,11 @@ async function resolveAddress(userId, input) {
   return { recipient, phone, street, city, state, ...(landmark ? { landmark } : {}) };
 }
 
-async function rollbackStock(items, session) {
+async function rollbackStock(items) {
   for (const item of items) {
     const result = await Product.updateOne(
       { _id: item.productId, 'variants.sku': item.sku },
       { $inc: { 'variants.$.stock': item.quantity } },
-      { session },
     );
     if (!result.modifiedCount) throw new ApiError(500, 'INTERNAL', `Could not restore stock for SKU ${item.sku}`);
   }
@@ -70,58 +68,98 @@ export async function createCheckout(userId, input) {
   const discountAmount = applicable?.discountAmount ?? 0;
   const total = subtotal - discountAmount + zone.fee;
   const orderNumber = await makeOrderNumber();
-  const session = await mongoose.startSession();
+  const transactionReference = input.paymentMethod === 'pay_on_delivery' ? `POD-${orderNumber}` : orderNumber;
+  const reservedItems = [];
+  const originalCartItems = cart.items.map(({ productId, sku, quantity }) => ({ productId, sku, quantity }));
+  let reservedDiscountId;
   let order;
+  let cartCleared = false;
   try {
-    await session.withTransaction(async () => {
-      for (const item of items) {
-        const result = await Product.updateOne(
-          {
-            _id: item.productId,
-            isActive: true,
-            variants: { $elemMatch: { sku: item.sku, stock: { $gte: item.quantity } } },
-          },
-          { $inc: { 'variants.$.stock': -item.quantity } },
-          { session },
-        );
-        if (!result.modifiedCount) throw new ApiError(409, 'OUT_OF_STOCK', `Insufficient stock for SKU ${item.sku}`);
-      }
-      if (applicable) await reserveDiscountUse(applicable.discount.id, session, subtotal);
-      [order] = await Order.create([{
-        orderNumber,
-        customerId: String(user.id),
-        customerName: user.name,
-        customerEmail: user.email,
-        items,
-        subtotal,
-        ...(input.discountCode ? { discountCode: input.discountCode } : {}),
-        discountAmount,
-        deliveryFee: zone.fee,
-        total,
-        shippingAddress,
-        deliveryZoneId: String(zone.id),
-        paymentMethod: input.paymentMethod,
-        paymentStatus: 'unpaid',
-        status: 'pending_payment',
-        statusHistory: [{ status: 'pending_payment', at: new Date().toISOString() }],
-      }], { session });
-      await Transaction.create([{
-        reference: input.paymentMethod === 'pay_on_delivery' ? `POD-${orderNumber}` : orderNumber,
-        orderId: String(order.id),
-        orderNumber,
-        customerId: String(user.id),
-        customerName: user.name,
-        amount: total,
-        method: input.paymentMethod,
-        status: input.paymentMethod === 'pay_on_delivery' ? 'pending' : 'pending',
-      }], { session });
-      cart.items = [];
-      await cart.save({ session });
+    for (const item of items) {
+      const result = await Product.updateOne(
+        {
+          _id: item.productId,
+          isActive: true,
+          variants: { $elemMatch: { sku: item.sku, stock: { $gte: item.quantity } } },
+        },
+        { $inc: { 'variants.$.stock': -item.quantity } },
+      );
+      if (!result.modifiedCount) throw new ApiError(409, 'OUT_OF_STOCK', `Insufficient stock for SKU ${item.sku}`);
+      reservedItems.push(item);
+    }
+    if (applicable) {
+      await reserveDiscountUse(applicable.discount.id, subtotal);
+      reservedDiscountId = applicable.discount.id;
+    }
+    order = await Order.create({
+      orderNumber,
+      customerId: String(user.id),
+      customerName: user.name,
+      customerEmail: user.email,
+      items,
+      subtotal,
+      ...(input.discountCode ? { discountCode: input.discountCode } : {}),
+      discountAmount,
+      deliveryFee: zone.fee,
+      total,
+      shippingAddress,
+      deliveryZoneId: String(zone.id),
+      paymentMethod: input.paymentMethod,
+      paymentStatus: 'unpaid',
+      status: 'pending_payment',
+      statusHistory: [{ status: 'pending_payment', at: new Date().toISOString() }],
     });
+    await Transaction.create({
+      reference: transactionReference,
+      orderId: String(order.id),
+      orderNumber,
+      customerId: String(user.id),
+      customerName: user.name,
+      amount: total,
+      method: input.paymentMethod,
+      status: 'pending',
+    });
+    cart.items = [];
+    await cart.save();
+    cartCleared = true;
   } catch (error) {
+    const rollbackErrors = [];
+    if (order) {
+      try {
+        await Order.deleteOne({ _id: order.id });
+      } catch (rollbackError) {
+        rollbackErrors.push(rollbackError);
+      }
+    }
+    try {
+      await Transaction.deleteOne({ reference: transactionReference });
+    } catch (rollbackError) {
+      rollbackErrors.push(rollbackError);
+    }
+    if (reservedDiscountId) {
+      try {
+        await Discount.updateOne({ _id: reservedDiscountId, usedCount: { $gt: 0 } }, { $inc: { usedCount: -1 } });
+      } catch (rollbackError) {
+        rollbackErrors.push(rollbackError);
+      }
+    }
+    try {
+      await rollbackStock(reservedItems);
+    } catch (rollbackError) {
+      rollbackErrors.push(rollbackError);
+    }
+    if (cartCleared) {
+      try {
+        cart.items = originalCartItems;
+        await cart.save();
+      } catch (rollbackError) {
+        rollbackErrors.push(rollbackError);
+      }
+    }
+    if (rollbackErrors.length) {
+      throw new AggregateError([error, ...rollbackErrors], 'Checkout failed and compensation was incomplete');
+    }
     throw error;
-  } finally {
-    await session.endSession();
   }
   sendMail({
     to: user.email,
@@ -139,18 +177,15 @@ export async function createCheckout(userId, input) {
 }
 
 export async function failPendingPayment(reference) {
-  const session = await mongoose.startSession();
-  try {
-    await session.withTransaction(async () => {
-      const order = await Order.findOne({ orderNumber: reference, status: 'pending_payment', paymentStatus: 'unpaid' }).session(session);
-      if (!order) return;
-      order.paymentStatus = 'failed';
-      order.statusHistory.push({ status: 'pending_payment', note: 'Payment failed', at: new Date().toISOString() });
-      await order.save({ session });
-      await rollbackStock(order.items, session);
-      await Transaction.updateOne({ reference }, { $set: { status: 'failed' } }, { session });
-    });
-  } finally {
-    await session.endSession();
-  }
+  const order = await Order.findOneAndUpdate(
+    { orderNumber: reference, status: 'pending_payment', paymentStatus: 'unpaid' },
+    {
+      $set: { paymentStatus: 'failed' },
+      $push: { statusHistory: { status: 'pending_payment', note: 'Payment failed', at: new Date().toISOString() } },
+    },
+    { new: true },
+  );
+  if (!order) return;
+  await rollbackStock(order.items);
+  await Transaction.updateOne({ reference }, { $set: { status: 'failed' } });
 }

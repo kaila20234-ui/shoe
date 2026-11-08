@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link, NavLink, Outlet } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import { Button } from '../ui';
+import { useAdminMockStore } from '../../admin/components/AdminMockStore';
 
 const links = [
   ['/admin', 'Dashboard'],
@@ -19,6 +20,7 @@ const links = [
 export function AdminLayout() {
   const [menuOpen, setMenuOpen] = useState(false);
   const { user, logout } = useAuth();
+  const { isLoading, loadError, refreshAdminData } = useAdminMockStore();
   return (
     <div className="shared-admin-shell">
       <aside className={`shared-admin-side${menuOpen ? ' is-open' : ''}`}>
@@ -30,6 +32,8 @@ export function AdminLayout() {
         </nav>
       </aside>
       <div className="shared-admin-main">
+        {isLoading && <p role="status" className="shared-muted">Loading admin data…</p>}
+        {loadError && <p role="alert" className="storefront-error">{loadError} <Button variant="secondary" onClick={() => void refreshAdminData()}>Retry</Button></p>}
         <header className="shared-admin-top">
           <Button className="shared-admin-toggle" variant="secondary" onClick={() => setMenuOpen((open) => !open)} aria-expanded={menuOpen}>
             {menuOpen ? 'Close menu' : 'Menu'}

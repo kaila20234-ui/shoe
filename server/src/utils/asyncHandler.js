@@ -1,5 +1,5 @@
-export function asyncHandler(fn) {
-  return function wrappedAsyncHandler(req, res, next) {
-    Promise.resolve(fn(req, res, next)).catch(next);
+export default function asyncHandler(handler) {
+  return function wrappedHandler(req, res, next) {
+    Promise.resolve(handler(req, res, next)).catch(next);
   };
 }

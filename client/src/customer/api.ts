@@ -1,4 +1,4 @@
-import { api } from '../../shared/api/client';
+import { api } from '../shared/api/client';
 import type {
   Address,
   AuthPayload,
@@ -15,7 +15,7 @@ import type {
   ReturnRequest,
   ShippingAddress,
   User,
-} from '../../shared/types';
+} from '../shared/types';
 
 export interface ApiResult<T> {
   data: T;

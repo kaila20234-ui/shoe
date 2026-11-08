@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
-import { config } from './env.js';
 
 export async function connectDatabase() {
-  await mongoose.connect(config.mongoUri);
+  if (!process.env.MONGODB_URI) throw new Error('MONGODB_URI is not configured');
+  await mongoose.connect(process.env.MONGODB_URI);
+  console.info(`Connected to MongoDB database "${mongoose.connection.name}"`);
 }

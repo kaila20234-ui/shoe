@@ -5,6 +5,7 @@ import { ownerRoutes } from './owner/routes';
 import { AdminLayout, OwnerLayout } from './shared/layout';
 import { RequireAuth } from './shared/auth/guards';
 import { EmptyState } from './shared/ui';
+import { AdminMockStoreProvider } from './admin/components/AdminMockStore';
 
 const adminChildren: RouteObject[] = adminRoutes.map((route) => {
   const routePath = route.path?.replace(/^\/admin\/?/, '') ?? '';
@@ -16,7 +17,7 @@ export const router = createBrowserRouter([
   ...customerRoutes,
   {
     path: '/admin',
-    element: <RequireAuth roles={['admin']}><AdminLayout /></RequireAuth>,
+    element: <RequireAuth roles={['admin']}><AdminMockStoreProvider><AdminLayout /></AdminMockStoreProvider></RequireAuth>,
     children: adminChildren,
   },
   {

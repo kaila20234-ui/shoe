@@ -1,23 +1,25 @@
 import nodemailer from 'nodemailer';
-import { config } from '../config/env.js';
 
-const smtpConfigured = Boolean(config.smtp.host && config.smtp.user && config.smtp.pass);
-const transporter = smtpConfigured
-  ? nodemailer.createTransport({
-      host: config.smtp.host,
-      port: config.smtp.port || 587,
-      secure: config.smtp.port === 465,
-      auth: { user: config.smtp.user, pass: config.smtp.pass },
-    })
-  : null;
+let transporter;
 
 export async function sendMail({ to, subject, html }) {
+  if (!process.env.SMTP_HOST || !process.env.MAIL_FROM) {
+    console.info(`Mail to ${to}: ${subject}`);
+    return;
+  }
   try {
     if (!transporter) {
-      console.info('SMTP is not configured; email not sent:', { to, subject });
-      return;
+      transporter = nodemailer.createTransport({
+        host: process.env.SMTP_HOST,
+        port: Number(process.env.SMTP_PORT || 587),
+        secure: Number(process.env.SMTP_PORT || 587) === 465,
+        auth: process.env.SMTP_USER ? {
+          user: process.env.SMTP_USER,
+          pass: process.env.SMTP_PASS,
+        } : undefined,
+      });
     }
-    await transporter.sendMail({ from: config.mailFrom, to, subject, html });
+    await transporter.sendMail({ from: process.env.MAIL_FROM, to, subject, html });
   } catch (error) {
     console.error('Unable to send email:', error);
   }

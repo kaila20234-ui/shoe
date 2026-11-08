@@ -21,6 +21,10 @@ async function paystackRequest(path, options = {}) {
 }
 
 export async function initializePayment({ email, amount, reference }) {
+  if (process.env.PAYSTACK_SECRET_KEY === 'sk_test_local_simulated') {
+    const callback = `${process.env.CLIENT_URL || 'http://localhost:5173'}/checkout/verify?reference=${encodeURIComponent(reference)}`;
+    return { authorization_url: callback, reference, amount, email };
+  }
   return paystackRequest('/transaction/initialize', {
     method: 'POST',
     body: JSON.stringify({
