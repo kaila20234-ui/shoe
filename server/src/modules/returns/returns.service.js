@@ -1,4 +1,3 @@
-import mongoose from 'mongoose';
 import { Order, ReturnRequest, Transaction, Product } from '../../models/index.js';
 import ApiError from '../../utils/ApiError.js';
 import { buildMeta, parsePagination } from '../../utils/paginate.js';
@@ -68,47 +67,39 @@ export async function updateReturn(id, status, adminNote, actorId) {
   if (status === 'refunded' && order.paymentMethod === 'paystack' && order.paymentStatus === 'paid') {
     await refundPayment(order.orderNumber);
   }
-  const session = await mongoose.startSession();
-  try {
-    await session.withTransaction(async () => {
-      const current = await ReturnRequest.findOneAndUpdate(
-        { _id: id, status: returnRequest.status },
-        { $set: { status, ...(adminNote !== undefined ? { adminNote } : {}) } },
-        { new: true, session },
-      );
-      if (!current) throw new ApiError(409, 'CONFLICT', 'Return request changed concurrently');
-      if (status === 'refunded') {
-        const orderUpdate = await Order.updateOne(
-          { _id: order.id, status: 'delivered' },
-          {
-            $set: { status: 'refunded', paymentStatus: 'refunded' },
-            $push: {
-              statusHistory: {
-                status: 'refunded',
-                ...(adminNote ? { note: adminNote } : {}),
-                at: new Date().toISOString(),
-                ...(actorId ? { byUserId: String(actorId) } : {}),
-              },
-            },
+  const current = await ReturnRequest.findOneAndUpdate(
+    { _id: id, status: returnRequest.status },
+    { $set: { status, ...(adminNote !== undefined ? { adminNote } : {}) } },
+    { new: true },
+  );
+  if (!current) throw new ApiError(409, 'CONFLICT', 'Return request changed concurrently');
+  if (status === 'refunded') {
+    const orderUpdate = await Order.findOneAndUpdate(
+      { _id: order.id, status: 'delivered' },
+      {
+        $set: { status: 'refunded', paymentStatus: 'refunded' },
+        $push: {
+          statusHistory: {
+            status: 'refunded',
+            ...(adminNote ? { note: adminNote } : {}),
+            at: new Date().toISOString(),
+            ...(actorId ? { byUserId: String(actorId) } : {}),
           },
-          { session },
-        );
-        if (!orderUpdate.modifiedCount) throw new ApiError(409, 'CONFLICT', 'Related order is no longer refundable');
-        await Transaction.updateOne({ orderId: String(order.id) }, { $set: { status: 'refunded' } }, { session });
-        for (const item of returnRequest.items) {
-          const productItem = order.items.find((line) => line.sku === item.sku);
-          if (!productItem) continue;
-          const result = await Product.updateOne(
-            { _id: productItem.productId, 'variants.sku': item.sku },
-            { $inc: { 'variants.$.stock': item.quantity } },
-            { session },
-          );
-          if (!result.modifiedCount) throw new ApiError(500, 'INTERNAL', `Could not restock SKU ${item.sku}`);
-        }
-      }
-    });
-  } finally {
-    await session.endSession();
+        },
+      },
+      { new: true },
+    );
+    if (!orderUpdate) throw new ApiError(409, 'CONFLICT', 'Related order is no longer refundable');
+    await Transaction.updateOne({ orderId: String(order.id) }, { $set: { status: 'refunded' } });
+    for (const item of returnRequest.items) {
+      const productItem = order.items.find((line) => line.sku === item.sku);
+      if (!productItem) continue;
+      const result = await Product.updateOne(
+        { _id: productItem.productId, 'variants.sku': item.sku },
+        { $inc: { 'variants.$.stock': item.quantity } },
+      );
+      if (!result.modifiedCount) throw new ApiError(500, 'INTERNAL', `Could not restock SKU ${item.sku}`);
+    }
   }
-  return ReturnRequest.findById(id);
+  return current;
 }

@@ -1,6 +1,9 @@
 import { createHmac } from 'node:crypto';
 import mongoose from 'mongoose';
+import { loadEnv } from '../config/env.js';
 import { Order } from '../models/index.js';
+
+loadEnv();
 
 const reference = process.argv[2];
 if (!reference) {

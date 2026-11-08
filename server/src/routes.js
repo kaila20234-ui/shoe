@@ -1,0 +1,38 @@
+import { Router } from 'express';
+import { authenticate, authorize } from './middleware/auth.js';
+import { readOnlyResource } from './middleware/ownerReadOnly.js';
+import adminUsersRouter from './modules/users/admin-users.routes.js';
+import adminRouter from './modules/admin/admin.routes.js';
+import authRouter from './modules/auth/auth.routes.js';
+import cartRouter from './modules/cart/cart.routes.js';
+import checkoutRouter from './modules/checkout/checkout.routes.js';
+import deliveryRouter from './modules/delivery/delivery.routes.js';
+import discountsRouter from './modules/discounts/discounts.routes.js';
+import ordersRouter from './modules/orders/orders.routes.js';
+import ownerRouter, { auditLogsRouter } from './modules/owner/owner.routes.js';
+import paymentsRouter from './modules/payments/payments.routes.js';
+import productsRouter from './modules/products/products.routes.js';
+import returnsRouter from './modules/returns/returns.routes.js';
+import reviewsRouter from './modules/reviews/reviews.routes.js';
+import usersRouter from './modules/users/users.routes.js';
+import wishlistRouter from './modules/wishlist/wishlist.routes.js';
+
+const router = Router();
+router.use('/auth', authRouter);
+router.use('/users', usersRouter);
+router.use('/products', reviewsRouter);
+router.use('/products', productsRouter);
+router.use('/cart', cartRouter);
+router.use('/wishlist', wishlistRouter);
+router.use('/delivery-zones', deliveryRouter);
+router.use('/discounts', discountsRouter);
+router.use('/checkout', checkoutRouter);
+router.use('/orders', ordersRouter);
+router.use('/payments', paymentsRouter);
+router.use('/returns', returnsRouter);
+router.use('/admin', authenticate, authorize('admin'), adminUsersRouter);
+router.use('/admin', authenticate, authorize('admin'), adminRouter);
+router.use('/owner', authenticate, authorize('owner', 'admin'), readOnlyResource, ownerRouter);
+router.use('/audit-logs', authenticate, authorize('owner', 'admin'), readOnlyResource, auditLogsRouter);
+
+export default router;

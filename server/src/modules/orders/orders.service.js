@@ -1,4 +1,3 @@
-import mongoose from 'mongoose';
 import { Order, Transaction, Product } from '../../models/index.js';
 import ApiError from '../../utils/ApiError.js';
 import { buildMeta, parsePagination } from '../../utils/paginate.js';
@@ -16,12 +15,11 @@ const transitions = {
   refunded: [],
 };
 
-async function restoreOrderStock(order, session) {
+async function restoreOrderStock(order) {
   for (const item of order.items) {
     const result = await Product.updateOne(
       { _id: item.productId, 'variants.sku': item.sku },
       { $inc: { 'variants.$.stock': item.quantity } },
-      { session },
     );
     if (!result.modifiedCount) throw new ApiError(500, 'INTERNAL', `Could not restore stock for SKU ${item.sku}`);
   }
@@ -83,46 +81,36 @@ export async function changeOrderStatus(req, orderId, nextStatus, note) {
   }
 
   const previous = order.status;
-  const session = await mongoose.startSession();
-  try {
-    await session.withTransaction(async () => {
-      const current = await Order.findOneAndUpdate(
-        { _id: orderId, status: previous },
-        {
-          $set: {
-            status: nextStatus,
-            ...(nextStatus === 'refunded' ? { paymentStatus: 'refunded' } : {}),
-            ...((nextStatus === 'cancelled' || nextStatus === 'refunded')
-              && order.paymentMethod === 'paystack' && order.paymentStatus === 'paid'
-              ? { paymentStatus: 'refunded' }
-              : {}),
-            ...(nextStatus === 'delivered' && order.paymentMethod === 'pay_on_delivery' ? { paymentStatus: 'paid' } : {}),
-          },
-          $push: { statusHistory: { status: nextStatus, ...(note ? { note } : {}), at: new Date().toISOString(), byUserId: String(req.user.id) } },
+  const isPaidPaystackRefund = order.paymentMethod === 'paystack' && order.paymentStatus === 'paid'
+    && (nextStatus === 'cancelled' || nextStatus === 'refunded');
+  const updated = await Order.findOneAndUpdate(
+    { _id: orderId, status: previous },
+    {
+      $set: {
+        status: nextStatus,
+        ...(nextStatus === 'refunded' || isPaidPaystackRefund ? { paymentStatus: 'refunded' } : {}),
+        ...(nextStatus === 'delivered' && order.paymentMethod === 'pay_on_delivery' ? { paymentStatus: 'paid' } : {}),
+      },
+      $push: {
+        statusHistory: {
+          status: nextStatus,
+          ...(note ? { note } : {}),
+          at: new Date().toISOString(),
+          byUserId: String(req.user.id),
         },
-        { new: true, session },
-      );
-      if (!current) throw new ApiError(409, 'CONFLICT', 'Order status changed concurrently; reload and retry');
-      if (nextStatus === 'cancelled' || nextStatus === 'refunded') {
-        await restoreOrderStock(current, session);
-      }
-      if (nextStatus === 'refunded' || (nextStatus === 'cancelled' && order.paymentMethod === 'paystack' && order.paymentStatus === 'paid')) {
-        await Transaction.updateOne(
-          { orderId: String(order.id) },
-          { $set: { status: 'refunded' } },
-          { session },
-        );
-      } else if (nextStatus === 'cancelled') {
-        await Transaction.updateOne({ orderId: String(order.id) }, { $set: { status: 'failed' } }, { session });
-      } else if (nextStatus === 'delivered' && order.paymentMethod === 'pay_on_delivery') {
-        await Transaction.updateOne({ orderId: String(order.id) }, { $set: { status: 'success' } }, { session });
-      }
-    });
-  } finally {
-    await session.endSession();
+      },
+    },
+    { new: true },
+  );
+  if (!updated) throw new ApiError(409, 'CONFLICT', 'Order status changed concurrently; reload and retry');
+  if (nextStatus === 'cancelled' || nextStatus === 'refunded') await restoreOrderStock(updated);
+  if (nextStatus === 'refunded' || isPaidPaystackRefund) {
+    await Transaction.updateOne({ orderId: String(order.id) }, { $set: { status: 'refunded' } });
+  } else if (nextStatus === 'cancelled') {
+    await Transaction.updateOne({ orderId: String(order.id) }, { $set: { status: 'failed' } });
+  } else if (nextStatus === 'delivered' && order.paymentMethod === 'pay_on_delivery') {
+    await Transaction.updateOne({ orderId: String(order.id) }, { $set: { status: 'success' } });
   }
-
-  const updated = await Order.findById(orderId);
   await logAudit(req, {
     action: 'order.status_change',
     entity: 'order',
@@ -151,27 +139,19 @@ export async function cancelCustomerOrder(userId, orderId) {
   const previous = order.status;
   const isRefund = order.paymentMethod === 'paystack' && order.paymentStatus === 'paid';
   const stockAlreadyRestored = order.paymentStatus === 'failed';
-  const session = await mongoose.startSession();
-  try {
-    await session.withTransaction(async () => {
-      const current = await Order.findOneAndUpdate(
-        { _id: order.id, customerId: String(userId), status: previous, paymentStatus: order.paymentStatus },
-        {
-          $set: { status: 'cancelled', ...(isRefund ? { paymentStatus: 'refunded' } : {}) },
-          $push: { statusHistory: { status: 'cancelled', note: 'Cancelled by customer', at: new Date().toISOString(), byUserId: String(userId) } },
-        },
-        { new: true, session },
-      );
-      if (!current) throw new ApiError(409, 'CONFLICT', 'Order status changed concurrently; reload and retry');
-      if (!stockAlreadyRestored) await restoreOrderStock(current, session);
-      await Transaction.updateOne(
-        { orderId: String(current.id) },
-        { $set: { status: isRefund ? 'refunded' : 'failed' } },
-        { session },
-      );
-    });
-  } finally {
-    await session.endSession();
-  }
-  return Order.findById(order.id);
+  const current = await Order.findOneAndUpdate(
+    { _id: order.id, customerId: String(userId), status: previous, paymentStatus: order.paymentStatus },
+    {
+      $set: { status: 'cancelled', ...(isRefund ? { paymentStatus: 'refunded' } : {}) },
+      $push: { statusHistory: { status: 'cancelled', note: 'Cancelled by customer', at: new Date().toISOString(), byUserId: String(userId) } },
+    },
+    { new: true },
+  );
+  if (!current) throw new ApiError(409, 'CONFLICT', 'Order status changed concurrently; reload and retry');
+  if (!stockAlreadyRestored) await restoreOrderStock(current);
+  await Transaction.updateOne(
+    { orderId: String(current.id) },
+    { $set: { status: isRefund ? 'refunded' : 'failed' } },
+  );
+  return current;
 }

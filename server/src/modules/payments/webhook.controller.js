@@ -1,5 +1,4 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
-import mongoose from 'mongoose';
 import { Order, Transaction } from '../../models/index.js';
 import ApiError from '../../utils/ApiError.js';
 import { sendMail } from '../../utils/mailer.js';
@@ -40,40 +39,31 @@ export async function paystackWebhook(req, res) {
       throw new ApiError(400, 'PAYMENT_FAILED', 'Paystack amount or currency does not match the order');
     }
     if (referencedOrder.paymentStatus === 'paid' && referencedOrder.status === 'paid') {
+      await Transaction.updateOne({ reference: data.reference }, { $set: { status: 'success' } });
       return res.status(200).json({});
     }
-    const session = await mongoose.startSession();
-    let order;
-    try {
-      await session.withTransaction(async () => {
-        const current = await Order.findOne({
-          orderNumber: data.reference,
-          status: 'pending_payment',
-          paymentStatus: 'unpaid',
-          paymentMethod: 'paystack',
-          total: referencedOrder.total,
-        }).session(session);
-        if (!current) return;
-        current.status = 'paid';
-        current.paymentStatus = 'paid';
-        current.statusHistory.push({ status: 'paid', note: 'Paystack payment confirmed', at: new Date().toISOString() });
-        await current.save({ session });
-        await Transaction.updateOne(
-          { reference: data.reference },
-          { $set: { status: 'success' } },
-          { session },
-        );
-        order = current;
-      });
-    } finally {
-      await session.endSession();
-    }
+    const order = await Order.findOneAndUpdate({
+      orderNumber: data.reference,
+      status: 'pending_payment',
+      paymentStatus: 'unpaid',
+      paymentMethod: 'paystack',
+      total: referencedOrder.total,
+    }, {
+      $set: { status: 'paid', paymentStatus: 'paid' },
+      $push: { statusHistory: { status: 'paid', note: 'Paystack payment confirmed', at: new Date().toISOString() } },
+    }, { new: true });
     if (order) {
+      await Transaction.updateOne({ reference: data.reference }, { $set: { status: 'success' } });
       sendMail({
         to: order.customerEmail,
         subject: `Payment received for ${order.orderNumber}`,
         html: `<p>Payment for order ${order.orderNumber} was successful.</p>`,
       });
+    } else {
+      const current = await Order.findOne({ orderNumber: data.reference });
+      if (current?.paymentStatus === 'paid') {
+        await Transaction.updateOne({ reference: data.reference }, { $set: { status: 'success' } });
+      }
     }
   } else if (event.event === 'charge.failed' || event.event === 'charge.abandoned') {
     await failPendingPayment(data.reference);

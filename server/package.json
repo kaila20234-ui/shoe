@@ -1,0 +1,21 @@
+{
+  "name": "shoe-store-server",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "seed": "node src/scripts/seed.js",
+    "test:e2e": "node src/scripts/e2e-smoke.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cloudinary": "^2.5.1",
+    "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^8.9.5",
+    "multer": "^2.0.2",
+    "nodemailer": "^10.4.0",
+    "zod": "^4.6.7"
+  }
+}

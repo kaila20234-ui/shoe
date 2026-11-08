@@ -7,7 +7,6 @@ import { Button, EmptyState, Input, Select, Spinner, StatusBadge } from '../shar
 import type {
   Address,
   Cart,
-  Order,
   Product,
   Review,
   ShippingAddress,
@@ -27,7 +26,7 @@ function PageTitle({ children }: { children: string }) {
 }
 
 function StoreEmpty({ title, description }: { title: string; description: string }) {
-  return <div className="storefront-empty"><EmptyState title={title} description={description} /></div>;
+  return <div className="storefront-empty"><EmptyState title={title} /><p>{description}</p></div>;
 }
 
 function ProductCard({ product, onRemove }: { product: Product; onRemove?: () => void }) {
