@@ -1,4 +1,4 @@
-import { createBrowserRouter, Navigate, type RouteObject } from 'react-router-dom';
+import { createBrowserRouter, type RouteObject } from 'react-router-dom';
 import { customerRoutes } from './customer/routes';
 import { adminRoutes } from './admin/routes';
 import { ownerRoutes } from './owner/routes';
@@ -24,6 +24,5 @@ export const router = createBrowserRouter([
     element: <RequireAuth roles={['owner', 'admin']}><OwnerLayout /></RequireAuth>,
     children: ownerRoutes,
   },
-  { path: '/login', element: <Navigate to="/" replace /> },
   { path: '*', element: <div className="shared-page"><EmptyState title="Page not found." /></div> },
 ]);
