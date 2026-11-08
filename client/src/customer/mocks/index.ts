@@ -28,6 +28,28 @@ let customer: User = {
   createdAt: now,
   updatedAt: now,
 };
+const admin: User = {
+  id: 'user-admin-1',
+  name: 'Shoe Store Admin',
+  email: 'admin@shoestore.test',
+  role: 'admin',
+  isActive: true,
+  addresses: [],
+  wishlist: [],
+  createdAt: now,
+  updatedAt: now,
+};
+const owner: User = {
+  id: 'user-owner-1',
+  name: 'Shoe Store Owner',
+  email: 'owner@shoestore.test',
+  role: 'owner',
+  isActive: true,
+  addresses: [],
+  wishlist: [],
+  createdAt: now,
+  updatedAt: now,
+};
 
 const products: Product[] = [
   {
@@ -235,6 +257,16 @@ function isAuthenticated(request: Request) {
   return request.headers.get('Authorization')?.startsWith('Bearer mock-token-') === true && activeUser !== null;
 }
 
+function isCustomer(request: Request) {
+  return isAuthenticated(request) && activeUser?.role === 'customer';
+}
+
+function customerAuthFailure(request: Request) {
+  return isAuthenticated(request)
+    ? failure('FORBIDDEN', 'Customer access required', 403)
+    : failure('UNAUTHENTICATED', 'Sign in required', 401);
+}
+
 export const handlers = [
   http.all(/\/api\/(?:auth|users|products|cart|wishlist|delivery-zones|discounts|checkout|orders|payments|returns)(?:\/|$)/, async ({ request }) => {
     const url = new URL(request.url);
@@ -248,14 +280,16 @@ export const handlers = [
       const body = await json<{ email: string; password: string }>();
       const email = body.email.toLowerCase();
       const registered = registeredUsers.get(email);
-      const user = email === customer.email && body.password === seededCustomerPassword ? customer : registered?.password === body.password ? registered.user : null;
+      const seededUser = [customer, admin, owner].find((candidate) => candidate.email === email);
+      const seededPassword = seededUser?.email === customer.email ? seededCustomerPassword : 'Passw0rd!123';
+      const user = seededUser && body.password === seededPassword ? seededUser : registered?.password === body.password ? registered.user : null;
       if (!user) return failure('UNAUTHENTICATED', 'Invalid email or password', 401);
       return success(authPayload(user));
     }
     if (method === 'POST' && path === '/auth/register') {
       const body = await json<{ name: string; email: string; phone?: string; password: string }>();
       const email = body.email.toLowerCase();
-      if (email === customer.email || registeredUsers.has(email)) return failure('CONFLICT', 'Email is already registered', 409);
+      if ([customer, admin, owner].some((account) => account.email === email) || registeredUsers.has(email)) return failure('CONFLICT', 'Email is already registered', 409);
       const user: User = { ...customer, id: `user-${Date.now()}`, name: body.name, email, phone: body.phone, addresses: [], wishlist: [], createdAt: now, updatedAt: now };
       registeredUsers.set(email, { user, password: body.password });
       return success(authPayload(user));
@@ -296,7 +330,7 @@ export const handlers = [
       return success({});
     }
     if (path === '/users/me/addresses') {
-      if (!isAuthenticated(request)) return failure('UNAUTHENTICATED', 'Sign in required', 401);
+      if (!isCustomer(request)) return customerAuthFailure(request);
       if (method === 'GET') return success(addresses);
       if (method === 'POST') {
         const body = await json<Omit<Address, 'id'>>();
@@ -307,7 +341,7 @@ export const handlers = [
     }
     const addressMatch = path.match(/^\/users\/me\/addresses\/([^/]+)$/);
     if (addressMatch) {
-      if (!isAuthenticated(request)) return failure('UNAUTHENTICATED', 'Sign in required', 401);
+      if (!isCustomer(request)) return customerAuthFailure(request);
       const index = addresses.findIndex((address) => address.id === decodeURIComponent(addressMatch[1]));
       if (index < 0) return failure('NOT_FOUND', 'Address not found', 404);
       if (method === 'PATCH') {
@@ -367,7 +401,7 @@ export const handlers = [
       return paged(result, url);
     }
     if (reviewsMatch && method === 'POST') {
-      if (!isAuthenticated(request)) return failure('UNAUTHENTICATED', 'Sign in required', 401);
+      if (!isCustomer(request)) return customerAuthFailure(request);
       const body = await json<{ rating: number; comment: string }>();
       const productId = decodeURIComponent(reviewsMatch[1]);
       const eligible = orders.some((order) => order.customerId === activeUser?.id && order.status === 'delivered' && order.items.some((item) => item.productId === productId));
@@ -383,14 +417,14 @@ export const handlers = [
       return product && product.isActive ? success(product) : failure('NOT_FOUND', 'Product not found', 404);
     }
 
-    if (path === '/cart' && method === 'GET') return isAuthenticated(request) ? success(buildCart()) : failure('UNAUTHENTICATED', 'Sign in required', 401);
+    if (path === '/cart' && method === 'GET') return isCustomer(request) ? success(buildCart()) : customerAuthFailure(request);
     if (path === '/cart' && method === 'DELETE') {
-      if (!isAuthenticated(request)) return failure('UNAUTHENTICATED', 'Sign in required', 401);
+      if (!isCustomer(request)) return customerAuthFailure(request);
       cartItems = [];
       return success(buildCart());
     }
     if (path === '/cart/items' && method === 'PUT') {
-      if (!isAuthenticated(request)) return failure('UNAUTHENTICATED', 'Sign in required', 401);
+      if (!isCustomer(request)) return customerAuthFailure(request);
       const body = await json<{ productId: string; sku: string; quantity: number }>();
       const product = products.find((candidate) => candidate.id === body.productId && candidate.isActive);
       const variant = product?.variants.find((candidate) => candidate.sku === body.sku);
@@ -400,10 +434,10 @@ export const handlers = [
       if (body.quantity > 0) cartItems.push({ productId: body.productId, sku: body.sku, name: product.name, image: product.images[0], size: variant.size, color: variant.color, unitPrice: product.salePrice ?? product.price, quantity: body.quantity, stockAvailable: variant.stock });
       return success(buildCart());
     }
-    if (path === '/wishlist' && method === 'GET') return isAuthenticated(request) ? success(wishlistIds) : failure('UNAUTHENTICATED', 'Sign in required', 401);
+    if (path === '/wishlist' && method === 'GET') return isCustomer(request) ? success(wishlistIds) : customerAuthFailure(request);
     const wishlistMatch = path.match(/^\/wishlist\/([^/]+)$/);
     if (wishlistMatch && (method === 'POST' || method === 'DELETE')) {
-      if (!isAuthenticated(request)) return failure('UNAUTHENTICATED', 'Sign in required', 401);
+      if (!isCustomer(request)) return customerAuthFailure(request);
       const id = decodeURIComponent(wishlistMatch[1]);
       wishlistIds = method === 'POST' ? [...new Set([...wishlistIds, id])] : wishlistIds.filter((item) => item !== id);
       return success(wishlistIds);
@@ -411,13 +445,13 @@ export const handlers = [
 
     if (path === '/delivery-zones' && method === 'GET') return success(zones.filter((zone) => zone.isActive));
     if (path === '/discounts/validate' && method === 'POST') {
-      if (!isAuthenticated(request)) return failure('UNAUTHENTICATED', 'Sign in required', 401);
+      if (!isCustomer(request)) return customerAuthFailure(request);
       const body = await json<{ code: string; subtotal: number }>();
       if (body.code.toUpperCase() !== 'WELCOME10') return failure('VALIDATION_ERROR', 'Discount code is not valid', 400);
       return success({ code: 'WELCOME10', discountAmount: Math.floor(body.subtotal * 0.1) });
     }
     if (path === '/checkout' && method === 'POST') {
-      if (!isAuthenticated(request)) return failure('UNAUTHENTICATED', 'Sign in required', 401);
+      if (!isCustomer(request)) return customerAuthFailure(request);
       const body = await json<Parameters<typeof makeOrder>[0]>();
       const currentCart = buildCart();
       if (currentCart.items.some((item) => item.quantity > item.stockAvailable)) return failure('OUT_OF_STOCK', 'One or more items are no longer in stock', 409);
@@ -428,10 +462,10 @@ export const handlers = [
         ...(order.paymentMethod === 'paystack' ? { paystack: { authorizationUrl: `${window.location.origin}/checkout/verify?reference=${encodeURIComponent(order.orderNumber)}`, reference: order.orderNumber } } : {}),
       });
     }
-    if (path === '/orders' && method === 'GET') return isAuthenticated(request) ? paged(orders, url) : failure('UNAUTHENTICATED', 'Sign in required', 401);
+    if (path === '/orders' && method === 'GET') return isCustomer(request) ? paged(orders, url) : customerAuthFailure(request);
     const orderMatch = path.match(/^\/orders\/([^/]+)(?:\/(cancel))?$/);
     if (orderMatch) {
-      if (!isAuthenticated(request)) return failure('UNAUTHENTICATED', 'Sign in required', 401);
+      if (!isCustomer(request)) return customerAuthFailure(request);
       const order = orders.find((candidate) => candidate.id === decodeURIComponent(orderMatch[1]));
       if (!order || order.customerId !== activeUser?.id) return failure('NOT_FOUND', 'Order not found', 404);
       if (orderMatch[2] === 'cancel' && method === 'POST') {
@@ -448,7 +482,7 @@ export const handlers = [
     }
     const verifyMatch = path.match(/^\/payments\/verify\/([^/]+)$/);
     if (verifyMatch && method === 'GET') {
-      if (!isAuthenticated(request)) return failure('UNAUTHENTICATED', 'Sign in required', 401);
+      if (!isCustomer(request)) return customerAuthFailure(request);
       const order = orders.find((candidate) => candidate.orderNumber === decodeURIComponent(verifyMatch[1]) && candidate.customerId === activeUser?.id);
       if (!order) return failure('NOT_FOUND', 'Order not found', 404);
       if (order.paymentMethod === 'paystack' && order.status === 'pending_payment') {
@@ -458,9 +492,9 @@ export const handlers = [
       }
       return success(order);
     }
-    if (path === '/returns' && method === 'GET') return isAuthenticated(request) ? success(returnRequests.filter((item) => item.customerId === activeUser?.id)) : failure('UNAUTHENTICATED', 'Sign in required', 401);
+    if (path === '/returns' && method === 'GET') return isCustomer(request) ? success(returnRequests.filter((item) => item.customerId === activeUser?.id)) : customerAuthFailure(request);
     if (path === '/returns' && method === 'POST') {
-      if (!isAuthenticated(request)) return failure('UNAUTHENTICATED', 'Sign in required', 401);
+      if (!isCustomer(request)) return customerAuthFailure(request);
       const body = await json<{ orderId: string; items: ReturnRequest['items']; reason: string }>();
       const order = orders.find((candidate) => candidate.id === body.orderId && candidate.customerId === activeUser?.id && candidate.status === 'delivered');
       if (!order) return failure('VALIDATION_ERROR', 'Only delivered orders can be returned', 400);

@@ -2,6 +2,7 @@ import type { RouteObject } from 'react-router-dom';
 import type { ReactNode } from 'react';
 import { CustomerLayout } from '../shared/layout/CustomerLayout';
 import { RequireAuth } from '../shared/auth/guards';
+import './customer.css';
 import {
   AccountPage,
   CartPage,
