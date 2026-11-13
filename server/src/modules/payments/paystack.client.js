@@ -5,14 +5,20 @@ const PAYSTACK_API = 'https://api.paystack.co';
 async function paystackRequest(path, options = {}) {
   const secret = process.env.PAYSTACK_SECRET_KEY;
   if (!secret) throw new ApiError(500, 'INTERNAL', 'Paystack is not configured');
-  const response = await fetch(`${PAYSTACK_API}${path}`, {
-    ...options,
-    headers: {
-      Authorization: `Bearer ${secret}`,
-      'Content-Type': 'application/json',
-      ...options.headers,
-    },
-  });
+  let response;
+  try {
+    response = await fetch(`${PAYSTACK_API}${path}`, {
+      ...options,
+      headers: {
+        Authorization: `Bearer ${secret}`,
+        'Content-Type': 'application/json',
+        ...options.headers,
+      },
+    });
+  } catch (error) {
+    console.error('Paystack request failed before a response was received.', error);
+    throw new ApiError(503, 'PAYMENT_FAILED', 'Paystack is temporarily unavailable. Please try again.');
+  }
   const body = await response.json();
   if (!response.ok || !body.status) {
     throw new ApiError(402, 'PAYMENT_FAILED', body.message || 'Paystack request failed');

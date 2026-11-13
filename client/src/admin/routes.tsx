@@ -11,19 +11,21 @@ import { ReviewsPage } from './pages/ReviewsPage';
 import { ReturnsPage } from './pages/ReturnsPage';
 import { AuditLogsPage } from './pages/AuditLogsPage';
 import { OrderDetailPage } from './pages/OrderDetailPage';
+import { AdminUsersPage } from './pages/AdminUsersPage';
 
 export const adminRoutes: RouteObject[] = [
-  { path: '/admin', element: <DashboardPage /> },
-  { path: '/admin/products', element: <ProductsPage /> },
-  { path: '/admin/products/new', element: <ProductEditorPage /> },
-  { path: '/admin/products/:id', element: <ProductEditorPage /> },
-  { path: '/admin/orders', element: <OrdersPage /> },
-  { path: '/admin/orders/:id', element: <OrderDetailPage /> },
-  { path: '/admin/customers', element: <CustomersPage /> },
-  { path: '/admin/inventory', element: <InventoryPage /> },
-  { path: '/admin/discounts', element: <DiscountsPage /> },
-  { path: '/admin/delivery', element: <DeliveryPage /> },
-  { path: '/admin/reviews', element: <ReviewsPage /> },
-  { path: '/admin/returns', element: <ReturnsPage /> },
-  { path: '/admin/audit-logs', element: <AuditLogsPage /> }
+  { index: true, element: <DashboardPage /> },
+  { path: 'products', element: <ProductsPage /> },
+  { path: 'products/new', element: <ProductEditorPage /> },
+  { path: 'products/:id', element: <ProductEditorPage /> },
+  { path: 'orders', element: <OrdersPage /> },
+  { path: 'orders/:id', element: <OrderDetailPage /> },
+  { path: 'customers', element: <CustomersPage /> },
+  { path: 'team', element: <AdminUsersPage /> },
+  { path: 'inventory', element: <InventoryPage /> },
+  { path: 'discounts', element: <DiscountsPage /> },
+  { path: 'delivery', element: <DeliveryPage /> },
+  { path: 'reviews', element: <ReviewsPage /> },
+  { path: 'returns', element: <ReturnsPage /> },
+  { path: 'audit-logs', element: <AuditLogsPage /> },
 ];

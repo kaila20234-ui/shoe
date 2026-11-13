@@ -17,3 +17,24 @@ export function loadEnv() {
     if (process.env[key] === undefined) process.env[key] = value;
   }
 }
+
+export function validateEnvironment(env = process.env) {
+  const required = ['JWT_SECRET', 'PAYSTACK_SECRET_KEY', 'PAYSTACK_PUBLIC_KEY', 'CLIENT_URL'];
+  const missing = required.filter((key) => !env[key]?.trim());
+  if (missing.length) {
+    throw new Error(`Missing required environment variables: ${missing.join(', ')}`);
+  }
+
+  let clientUrl;
+  try {
+    clientUrl = new URL(env.CLIENT_URL);
+  } catch {
+    throw new Error('CLIENT_URL must be a valid absolute URL');
+  }
+  if (clientUrl.protocol !== 'http:' && clientUrl.protocol !== 'https:') {
+    throw new Error('CLIENT_URL must use HTTP or HTTPS');
+  }
+  if (env.NODE_ENV === 'production' && env.PAYSTACK_SECRET_KEY === 'sk_test_local_simulated') {
+    throw new Error('The simulated Paystack secret cannot be used in production');
+  }
+}

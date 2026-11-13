@@ -4,6 +4,7 @@ import jwt from 'jsonwebtoken';
 import { User } from '../../models/index.js';
 import ApiError from '../../utils/ApiError.js';
 import { ok } from '../../utils/respond.js';
+import { logAudit } from '../../utils/audit.js';
 import { sendMail } from '../../utils/mailer.js';
 
 function publicUser(user) {
@@ -32,12 +33,28 @@ export async function register(req, res) {
   return ok(res, issueToken(user), { status: 201 });
 }
 
-export async function login(req, res) {
+async function authenticateCredentials(req) {
   const user = await User.findOne({ email: req.body.email });
   if (!user || !await bcrypt.compare(req.body.password, user.passwordHash)) {
     throw new ApiError(401, 'UNAUTHENTICATED', 'Email or password is incorrect');
   }
   if (!user.isActive) throw new ApiError(403, 'FORBIDDEN', 'This account is blocked');
+  return user;
+}
+
+export async function login(req, res) {
+  const user = await authenticateCredentials(req);
+  if (user.role !== 'customer') {
+    throw new ApiError(403, 'FORBIDDEN', 'This account must use the staff sign-in');
+  }
+  return ok(res, issueToken(user));
+}
+
+export async function staffLogin(req, res) {
+  const user = await authenticateCredentials(req);
+  if (user.role !== 'admin' && user.role !== 'owner') {
+    throw new ApiError(403, 'FORBIDDEN', 'This account does not have staff access');
+  }
   return ok(res, issueToken(user));
 }
 
@@ -84,6 +101,15 @@ export async function updateProfile(req, res) {
   if (req.body.name !== undefined) user.name = req.body.name;
   if (req.body.phone !== undefined) user.phone = req.body.phone;
   await user.save();
+  return ok(res, publicUser(user));
+}
+
+export async function uploadAvatar(req, res) {
+  const user = await User.findById(req.user.id);
+  if (!user) throw new ApiError(404, 'NOT_FOUND', 'User not found');
+  user.avatarUrl = `/uploads/avatars/${req.file.filename}`;
+  await user.save();
+  await logAudit(req, { action: 'profile.avatar_update', entity: 'user', entityId: user.id });
   return ok(res, publicUser(user));
 }
 

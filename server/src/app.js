@@ -1,4 +1,5 @@
 import express from 'express';
+import { uploadsDirectory } from './config/uploads.js';
 import { errorHandler, notFound } from './middleware/errorHandler.js';
 import routes from './routes.js';
 
@@ -25,6 +26,12 @@ app.use((req, res, next) => {
 
 app.use('/api/payments/paystack/webhook', express.raw({ type: 'application/json', limit: '1mb' }));
 app.use(express.json({ limit: '1mb' }));
+app.use('/uploads', express.static(uploadsDirectory, {
+  dotfiles: 'deny',
+  index: false,
+  immutable: true,
+  maxAge: '1y',
+}));
 app.use('/api', routes);
 app.use(notFound);
 app.use(errorHandler);

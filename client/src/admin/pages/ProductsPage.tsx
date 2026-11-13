@@ -2,12 +2,12 @@ import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../../shared/api/client';
 import { useToast } from '../../shared/ui';
-import { useAdminMockStore } from '../components/AdminMockStore';
+import { useAdminDataStore } from '../components/AdminDataStore';
 import { formatPrice } from '../components/format';
 import { EmptyState, Section } from '../components/ui';
 
 export function ProductsPage() {
-  const { products, setProducts, refreshAdminData } = useAdminMockStore();
+  const { products, setProducts, refreshAdminData } = useAdminDataStore();
   const toast = useToast();
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState('all');
@@ -36,14 +36,14 @@ export function ProductsPage() {
 
   return (
     <Section title="Products">
-      <div className="admin-toolbar">
-        <input aria-label="Search products" placeholder="Search name or brand" value={query} onChange={(event) => setQuery(event.target.value)} />
-        <select aria-label="Filter products by status" value={status} onChange={(event) => setStatus(event.target.value)}>
+      <div className="admin-toolbar admin-filter-bar">
+        <label className="admin-filter-search"><span>Find a product</span><input aria-label="Search products" placeholder="Search name or brand" value={query} onChange={(event) => setQuery(event.target.value)} /></label>
+        <label className="admin-filter-field"><span>Product status</span><select aria-label="Filter products by status" value={status} onChange={(event) => setStatus(event.target.value)}>
           <option value="all">All statuses</option>
           <option value="true">Active</option>
           <option value="false">Inactive</option>
-        </select>
-        <Link className="button" to="/admin/products/new">Add product</Link>
+        </select></label>
+        <Link className="button admin-filter-action" to="/admin/products/new"><span aria-hidden="true">＋</span> Add product</Link>
       </div>
       {filteredProducts.length ? (
         <div className="admin-table-wrap">

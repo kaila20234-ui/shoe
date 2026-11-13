@@ -1,12 +1,12 @@
 import { useMemo, useState } from 'react';
 import { api } from '../../shared/api/client';
 import { useToast } from '../../shared/ui';
-import { useAdminMockStore } from '../components/AdminMockStore';
+import { useAdminDataStore } from '../components/AdminDataStore';
 import { formatPrice } from '../components/format';
 import { EmptyState, Section } from '../components/ui';
 
 export function CustomersPage() {
-  const { customers, setCustomers, refreshAdminData } = useAdminMockStore();
+  const { customers, setCustomers, refreshAdminData } = useAdminDataStore();
   const toast = useToast();
   const [query, setQuery] = useState('');
   const filtered = useMemo(() => customers.filter((customer) => (
@@ -28,7 +28,10 @@ export function CustomersPage() {
 
   return (
     <Section title="Customers">
-      <div className="admin-toolbar"><input aria-label="Search customers" placeholder="Search name or email" value={query} onChange={(event) => setQuery(event.target.value)} /></div>
+      <div className="admin-toolbar admin-filter-bar">
+        <label className="admin-filter-search"><span>Find a customer</span><input aria-label="Search customers" placeholder="Search name or email address" value={query} onChange={(event) => setQuery(event.target.value)} /></label>
+        <span className="admin-filter-hint">Search the customer directory by name or email.</span>
+      </div>
       {filtered.length ? (
         <div className="admin-table-wrap"><table className="table">
           <thead><tr><th>Name</th><th>Email</th><th>Status</th><th>Total spent</th><th>Action</th></tr></thead>

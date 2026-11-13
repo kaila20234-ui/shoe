@@ -24,8 +24,11 @@ export function Button({
 
 export function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section className="panel">
-      <div className="panel-title">{title}</div>
+    <section className="panel admin-section">
+      <header className="admin-section__header">
+        <span className="admin-section__accent" aria-hidden="true" />
+        <h1>{title}</h1>
+      </header>
       {children}
     </section>
   );

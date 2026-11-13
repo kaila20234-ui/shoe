@@ -1,9 +1,10 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react';
 import { api } from '../../shared/api/client';
 import type { AuditLog, DeliveryZone, Discount, Order, Product, ReturnRequest, Review, User } from '../../shared/types';
-import type { CustomerRow } from '../mocks';
 
-type AdminMockStoreValue = {
+export type CustomerRow = { id: string; name: string; email: string; status: 'active' | 'blocked'; totalSpent: number };
+
+type AdminDataStoreValue = {
   products: Product[];
   setProducts: Dispatch<SetStateAction<Product[]>>;
   orders: Order[];
@@ -25,9 +26,9 @@ type AdminMockStoreValue = {
   refreshAdminData: () => Promise<void>;
 };
 
-const AdminMockStoreContext = createContext<AdminMockStoreValue | null>(null);
+const AdminDataStoreContext = createContext<AdminDataStoreValue | null>(null);
 
-export function AdminMockStoreProvider({ children }: { children: ReactNode }) {
+export function AdminDataStoreProvider({ children }: { children: ReactNode }) {
   const [products, setProducts] = useState<Product[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [customers, setCustomers] = useState<CustomerRow[]>([]);
@@ -89,15 +90,15 @@ export function AdminMockStoreProvider({ children }: { children: ReactNode }) {
     }), [products, orders, customers, discounts, deliveryZones, reviews, returns, auditLogs, isLoading, loadError, refreshAdminData]);
 
   return (
-    <AdminMockStoreContext.Provider value={value}>
+    <AdminDataStoreContext.Provider value={value}>
       {children}
-    </AdminMockStoreContext.Provider>
+    </AdminDataStoreContext.Provider>
   );
 }
 
-export function useAdminMockStore() {
-  const store = useContext(AdminMockStoreContext);
-  if (!store) throw new Error('Admin pages must be rendered inside AdminMockStoreProvider');
+export function useAdminDataStore() {
+  const store = useContext(AdminDataStoreContext);
+  if (!store) throw new Error('Admin pages must be rendered inside AdminDataStoreProvider');
   return store;
 }
 

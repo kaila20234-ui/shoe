@@ -2,11 +2,11 @@ import { useMemo, useState } from 'react';
 import type { ReviewStatus } from '../../shared/types';
 import { api } from '../../shared/api/client';
 import { useToast } from '../../shared/ui';
-import { useAdminMockStore } from '../components/AdminMockStore';
+import { useAdminDataStore } from '../components/AdminDataStore';
 import { EmptyState, Section } from '../components/ui';
 
 export function ReviewsPage() {
-  const { reviews, setReviews, refreshAdminData } = useAdminMockStore();
+  const { reviews, setReviews, refreshAdminData } = useAdminDataStore();
   const toast = useToast();
   const [status, setStatus] = useState('');
   const filtered = useMemo(() => reviews.filter((review) => !status || review.status === status), [reviews, status]);
@@ -23,10 +23,11 @@ export function ReviewsPage() {
 
   return (
     <Section title="Reviews moderation">
-      <div className="admin-toolbar">
-        <select aria-label="Filter reviews by status" value={status} onChange={(event) => setStatus(event.target.value)}>
+      <div className="admin-toolbar admin-filter-bar">
+        <label className="admin-filter-field"><span>Review status</span><select aria-label="Filter reviews by status" value={status} onChange={(event) => setStatus(event.target.value)}>
           <option value="">All statuses</option><option value="pending">Pending</option><option value="approved">Approved</option><option value="rejected">Rejected</option>
-        </select>
+        </select></label>
+        <span className="admin-filter-hint">Approve reviews to publish them on the storefront.</span>
       </div>
       {filtered.length ? (
         <div className="admin-table-wrap"><table className="table">

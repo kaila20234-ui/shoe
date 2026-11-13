@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import bcrypt from 'bcryptjs';
 import { User } from '../../models/index.js';
 import ApiError from '../../utils/ApiError.js';
 import { logAudit } from '../../utils/audit.js';
@@ -56,6 +57,22 @@ export async function listCustomers(req, res) {
     User.countDocuments(filter),
   ]);
   return ok(res, customers, { meta: buildMeta(page, limit, total) });
+}
+
+export async function createAdmin(req, res) {
+  const passwordHash = await bcrypt.hash(req.body.password, 12);
+  const admin = await User.create({
+    name: req.body.name,
+    email: req.body.email,
+    passwordHash,
+    role: 'admin',
+  });
+  await logAudit(req, {
+    action: 'admin.create',
+    entity: 'admin',
+    entityId: admin.id,
+  });
+  return ok(res, admin, { status: 201 });
 }
 
 export async function updateCustomerStatus(req, res) {

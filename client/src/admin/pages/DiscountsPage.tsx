@@ -2,12 +2,12 @@ import { useState, type FormEvent } from 'react';
 import type { Discount, DiscountType } from '../../shared/types';
 import { api } from '../../shared/api/client';
 import { useToast } from '../../shared/ui';
-import { useAdminMockStore } from '../components/AdminMockStore';
+import { useAdminDataStore } from '../components/AdminDataStore';
 import { formatPrice } from '../components/format';
 import { EmptyState, Section } from '../components/ui';
 
 export function DiscountsPage() {
-  const { discounts, setDiscounts, refreshAdminData } = useAdminMockStore();
+  const { discounts, setDiscounts, refreshAdminData } = useAdminDataStore();
   const toast = useToast();
   const [editing, setEditing] = useState<Discount | null>(null);
   const [code, setCode] = useState('');
@@ -105,16 +105,34 @@ export function DiscountsPage() {
   return (
     <Section title="Discounts">
       <details className="admin-disclosure" open>
-        <summary>{editing ? 'Edit discount' : 'Create discount'}</summary>
+        <summary><span className="admin-disclosure__mark">{editing ? '✎' : '+'}</span><span><strong>{editing ? 'Edit discount' : 'Create a discount'}</strong><small>Set the offer, customer eligibility, and usage limits.</small></span></summary>
         <form className="admin-form" onSubmit={save}>
-          <label>Code<input required value={code} onChange={(event) => setCode(event.target.value)} /></label>
-          <label>Type<select value={type} onChange={(event) => setType(event.target.value as DiscountType)}><option value="percentage">Percentage</option><option value="fixed">Fixed amount</option></select></label>
-          <label>Value{type === 'fixed' ? ' (₦)' : ' (%)'}<input type="number" min="0.01" step="0.01" required value={value} onChange={(event) => setValue(event.target.value)} /></label>
-          <label>Minimum subtotal (₦)<input type="number" min="0" step="0.01" value={minSubtotal} onChange={(event) => setMinSubtotal(event.target.value)} /></label>
-          <label>Max uses<input type="number" min="1" step="1" value={maxUses} onChange={(event) => setMaxUses(event.target.value)} /></label>
-          <label>Expires on<input type="date" value={expiresAt} onChange={(event) => setExpiresAt(event.target.value)} /></label>
+          <div className="admin-form-intro">
+            <span className="admin-form-step">PROMOTIONS</span>
+            <h2>Make an offer worth sharing</h2>
+            <p>Create a code customers can apply at checkout.</p>
+          </div>
+          <fieldset className="admin-form-section">
+            <legend><span>01</span> Discount details</legend>
+            <div className="admin-form-section__grid">
+              <label>Discount code<input required value={code} onChange={(event) => setCode(event.target.value)} placeholder="e.g. WELCOME10" autoCapitalize="characters" /></label>
+              <label>Discount type<select value={type} onChange={(event) => setType(event.target.value as DiscountType)}><option value="percentage">Percentage off</option><option value="fixed">Fixed amount off</option></select></label>
+              <label>Discount value <span className="admin-field-suffix">{type === 'fixed' ? 'NGN' : 'Percent'}</span><input type="number" min="0.01" step="0.01" required value={value} onChange={(event) => setValue(event.target.value)} placeholder={type === 'fixed' ? '0.00' : '10'} /></label>
+            </div>
+          </fieldset>
+          <fieldset className="admin-form-section">
+            <legend><span>02</span> Eligibility & limits</legend>
+            <div className="admin-form-section__grid">
+              <label>Minimum order subtotal <span className="admin-field-suffix">NGN · 0 means no minimum</span><input type="number" min="0" step="0.01" value={minSubtotal} onChange={(event) => setMinSubtotal(event.target.value)} /></label>
+              <label>Maximum uses <span className="admin-field-suffix">Leave blank for unlimited</span><input type="number" min="1" step="1" value={maxUses} onChange={(event) => setMaxUses(event.target.value)} placeholder="Unlimited" /></label>
+              <label>Expiry date <span className="admin-field-suffix">Optional</span><input type="date" value={expiresAt} onChange={(event) => setExpiresAt(event.target.value)} /></label>
+            </div>
+          </fieldset>
           {error && <p className="admin-error" role="alert">{error}</p>}
-          <div className="admin-actions"><button className="button" type="submit">{editing ? 'Save changes' : 'Create discount'}</button>{editing && <button className="button ghost" type="button" onClick={resetForm}>Cancel edit</button>}</div>
+          <div className="admin-form-footer">
+            <span>You can pause or edit the offer at any time.</span>
+            <div className="admin-actions"><button className="button ghost" type="button" onClick={resetForm}>{editing ? 'Cancel' : 'Clear form'}</button><button className="button" type="submit">{editing ? 'Save discount' : 'Create discount code'}</button></div>
+          </div>
         </form>
       </details>
       {discounts.length ? (

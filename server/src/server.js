@@ -1,8 +1,9 @@
 import app from './app.js';
 import { connectDatabase } from './config/db.js';
-import { loadEnv } from './config/env.js';
+import { loadEnv, validateEnvironment } from './config/env.js';
 
 loadEnv();
+validateEnvironment();
 await connectDatabase();
 
 const port = Number(process.env.PORT || 5000);

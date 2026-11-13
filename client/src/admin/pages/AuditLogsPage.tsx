@@ -1,9 +1,9 @@
 import { useMemo, useState } from 'react';
-import { useAdminMockStore } from '../components/AdminMockStore';
+import { useAdminDataStore } from '../components/AdminDataStore';
 import { EmptyState, Section } from '../components/ui';
 
 export function AuditLogsPage() {
-  const { auditLogs } = useAdminMockStore();
+  const { auditLogs } = useAdminDataStore();
   const [actor, setActor] = useState('');
   const [entity, setEntity] = useState('');
   const [from, setFrom] = useState('');
@@ -18,11 +18,11 @@ export function AuditLogsPage() {
 
   return (
     <Section title="Audit logs">
-      <div className="admin-toolbar">
-        <input aria-label="Filter by actor" placeholder="Actor" value={actor} onChange={(event) => setActor(event.target.value)} />
-        <input aria-label="Filter by entity" placeholder="Entity" value={entity} onChange={(event) => setEntity(event.target.value)} />
-        <label className="admin-inline-label">From<input aria-label="From date" type="date" value={from} onChange={(event) => setFrom(event.target.value)} /></label>
-        <label className="admin-inline-label">To<input aria-label="To date" type="date" value={to} onChange={(event) => setTo(event.target.value)} /></label>
+      <div className="admin-toolbar admin-filter-bar">
+        <label className="admin-filter-field"><span>Actor</span><input aria-label="Filter by actor" placeholder="Search administrator" value={actor} onChange={(event) => setActor(event.target.value)} /></label>
+        <label className="admin-filter-field"><span>Entity</span><input aria-label="Filter by entity" placeholder="Search entity type" value={entity} onChange={(event) => setEntity(event.target.value)} /></label>
+        <label className="admin-filter-field"><span>From</span><input aria-label="From date" type="date" value={from} onChange={(event) => setFrom(event.target.value)} /></label>
+        <label className="admin-filter-field"><span>To</span><input aria-label="To date" type="date" value={to} onChange={(event) => setTo(event.target.value)} /></label>
       </div>
       {filtered.length ? (
         <div className="admin-table-wrap"><table className="table">

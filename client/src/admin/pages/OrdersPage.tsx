@@ -30,13 +30,13 @@ export function OrdersPage() {
 
   return (
     <Section title="Orders">
-      <div className="admin-toolbar">
-        <input aria-label="Search orders" placeholder="Order number or customer" value={query} onChange={(event) => setQuery(event.target.value)} />
-        <select aria-label="Filter orders by status" value={status} onChange={(event) => setStatus(event.target.value)}>
+      <div className="admin-toolbar admin-filter-bar">
+        <label className="admin-filter-search"><span>Search orders</span><input aria-label="Search orders" placeholder="Order number or customer" value={query} onChange={(event) => setQuery(event.target.value)} /></label>
+        <label className="admin-filter-field"><span>Order status</span><select aria-label="Filter orders by status" value={status} onChange={(event) => setStatus(event.target.value)}>
           <option value="">All statuses</option>{statuses.map((value) => <option key={value} value={value}>{value.replace(/_/g, ' ')}</option>)}
-        </select>
-        <label className="admin-inline-label">From<input aria-label="From date" type="date" value={from} onChange={(event) => setFrom(event.target.value)} /></label>
-        <label className="admin-inline-label">To<input aria-label="To date" type="date" value={to} onChange={(event) => setTo(event.target.value)} /></label>
+        </select></label>
+        <label className="admin-filter-field"><span>From</span><input aria-label="From date" type="date" value={from} onChange={(event) => setFrom(event.target.value)} /></label>
+        <label className="admin-filter-field"><span>To</span><input aria-label="To date" type="date" value={to} onChange={(event) => setTo(event.target.value)} /></label>
       </div>
       {ordersQuery.isLoading && <p role="status">Loading orders…</p>}
       {ordersQuery.isError && <p role="alert">{ordersQuery.error.message} <button className="button ghost" type="button" onClick={() => void ordersQuery.refetch()}>Retry</button></p>}

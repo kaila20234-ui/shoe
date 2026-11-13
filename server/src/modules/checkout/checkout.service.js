@@ -38,7 +38,8 @@ export async function createCheckout(userId, input) {
   if (!cart?.items.length) throw new ApiError(400, 'VALIDATION_ERROR', 'Cart is empty');
   const shippingAddress = await resolveAddress(userId, input);
   const zone = await DeliveryZone.findOne({ _id: input.deliveryZoneId, isActive: true });
-  if (!zone || !zone.states.includes(shippingAddress.state)) {
+  const addressState = shippingAddress.state.trim().toLowerCase();
+  if (!zone || !zone.states.some((state) => state.trim().toLowerCase() === addressState)) {
     throw new ApiError(400, 'VALIDATION_ERROR', 'Delivery zone is not available for this address');
   }
   const user = await User.findById(userId);
@@ -161,17 +162,40 @@ export async function createCheckout(userId, input) {
     }
     throw error;
   }
-  sendMail({
-    to: user.email,
-    subject: `Order ${orderNumber} received`,
-    html: `<p>We received your order ${orderNumber}.</p>`,
-  });
-  if (input.paymentMethod === 'pay_on_delivery') return { order };
+  if (input.paymentMethod === 'pay_on_delivery') {
+    sendMail({
+      to: user.email,
+      subject: `Order ${orderNumber} received`,
+      html: `<p>We received your order ${orderNumber}.</p>`,
+    });
+    return { order };
+  }
   try {
     const payment = await initializePayment({ email: user.email, amount: total, reference: orderNumber });
+    sendMail({
+      to: user.email,
+      subject: `Order ${orderNumber} received`,
+      html: `<p>We received your order ${orderNumber}.</p>`,
+    });
     return { order, paystack: { authorizationUrl: payment.authorization_url, reference: orderNumber } };
   } catch (error) {
-    await failPendingPayment(orderNumber);
+    const rollbackErrors = [];
+    try {
+      await failPendingPayment(orderNumber);
+    } catch (rollbackError) {
+      rollbackErrors.push(rollbackError);
+    }
+    if (cartCleared) {
+      try {
+        cart.items = originalCartItems;
+        await cart.save();
+      } catch (rollbackError) {
+        rollbackErrors.push(rollbackError);
+      }
+    }
+    if (rollbackErrors.length) {
+      throw new AggregateError([error, ...rollbackErrors], 'Payment initialization failed and checkout compensation was incomplete');
+    }
     throw error;
   }
 }

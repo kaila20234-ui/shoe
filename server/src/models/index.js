@@ -34,6 +34,7 @@ const userSchema = new mongoose.Schema({
   email: { type: String, required: true, unique: true, lowercase: true, trim: true },
   passwordHash: { type: String, required: true },
   phone: String,
+  avatarUrl: String,
   role: { type: String, enum: ['customer', 'admin', 'owner'], default: 'customer', required: true },
   isActive: { type: Boolean, default: true },
   addresses: { type: [addressSchema], default: [] },

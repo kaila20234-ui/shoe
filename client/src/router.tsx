@@ -1,24 +1,20 @@
-import { createBrowserRouter, type RouteObject } from 'react-router-dom';
+import { createBrowserRouter } from 'react-router-dom';
 import { customerRoutes } from './customer/routes';
 import { adminRoutes } from './admin/routes';
 import { ownerRoutes } from './owner/routes';
 import { AdminLayout, OwnerLayout } from './shared/layout';
 import { RequireAuth } from './shared/auth/guards';
 import { EmptyState } from './shared/ui';
-import { AdminMockStoreProvider } from './admin/components/AdminMockStore';
-
-const adminChildren: RouteObject[] = adminRoutes.map((route) => {
-  const routePath = route.path?.replace(/^\/admin\/?/, '') ?? '';
-  if (!routePath) return { index: true, element: route.element };
-  return { ...route, path: routePath };
-});
+import { AdminDataStoreProvider } from './admin/components/AdminDataStore';
+import { AdminLoginPage } from './admin/pages/AdminLoginPage';
 
 export const router = createBrowserRouter([
   ...customerRoutes,
+  { path: '/admin/login', element: <AdminLoginPage /> },
   {
     path: '/admin',
-    element: <RequireAuth roles={['admin']}><AdminMockStoreProvider><AdminLayout /></AdminMockStoreProvider></RequireAuth>,
-    children: adminChildren,
+    element: <RequireAuth roles={['admin']}><AdminDataStoreProvider><AdminLayout /></AdminDataStoreProvider></RequireAuth>,
+    children: adminRoutes,
   },
   {
     path: '/owner',

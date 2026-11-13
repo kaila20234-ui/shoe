@@ -11,17 +11,21 @@ function homeForRole(role: Role | undefined): string {
 }
 
 export function RequireAuth({ roles, children }: { roles: Role[]; children?: ReactNode }) {
-  const { user, isLoading } = useAuth();
+  const session = roles.includes('customer') ? 'customer' : 'staff';
+  const { user, isLoading } = useAuth(session);
   const location = useLocation();
 
   if (isLoading) return <Spinner label="Checking your session" />;
-  if (!user) return <Navigate to="/login" replace state={{ from: location }} />;
+  if (!user) {
+    const loginPath = location.pathname.startsWith('/admin') ? '/admin/login' : '/login';
+    return <Navigate to={loginPath} replace state={{ from: location }} />;
+  }
   if (!roles.includes(user.role)) return <Navigate to={homeForRole(user.role)} replace />;
   return children ? <>{children}</> : <Outlet />;
 }
 
 export function GuestOnly({ children }: { children?: ReactNode }) {
-  const { user, isLoading } = useAuth();
+  const { user, isLoading } = useAuth('customer');
   if (isLoading) return <Spinner label="Checking your session" />;
   if (user) return <Navigate to={homeForRole(user.role)} replace />;
   return children ? <>{children}</> : <Outlet />;

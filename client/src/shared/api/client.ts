@@ -2,8 +2,10 @@ import axios, {
   type AxiosInstance,
   type AxiosRequestConfig,
   type AxiosResponse,
+  type InternalAxiosRequestConfig,
 } from 'axios';
 import type { ApiFailure, ApiSuccess, ErrorCode, PageMeta } from '../types';
+import { authTokenKeys, sessionForRequest, type AuthSession } from '../auth/session';
 
 export interface ApiResult<T> {
   data: T;
@@ -24,7 +26,7 @@ export class ApiClientError extends Error {
   }
 }
 
-type ApiConfig<D = unknown> = AxiosRequestConfig<D>;
+type ApiConfig<D = unknown> = AxiosRequestConfig<D> & { authSession?: AuthSession };
 
 interface ApiClient extends Omit<AxiosInstance, 'get' | 'post' | 'put' | 'patch' | 'delete'> {
   get<T = unknown>(url: string, config?: ApiConfig): Promise<ApiResult<T>>;
@@ -35,13 +37,14 @@ interface ApiClient extends Omit<AxiosInstance, 'get' | 'post' | 'put' | 'patch'
   getBlob(url: string, config?: ApiConfig): Promise<Blob>;
 }
 
-const TOKEN_KEY = 'shoestore_token';
 const instance = axios.create({
   baseURL: import.meta.env.VITE_API_URL || 'http://localhost:5000/api',
 });
 
 instance.interceptors.request.use((config) => {
-  const token = window.localStorage.getItem(TOKEN_KEY);
+  const authSession = (config as InternalAxiosRequestConfig & { authSession?: AuthSession }).authSession;
+  const session = authSession ?? sessionForRequest(config.url, window.location.pathname);
+  const token = session ? window.localStorage.getItem(authTokenKeys[session]) : null;
   if (token) config.headers.Authorization = `Bearer ${token}`;
   return config;
 });
@@ -52,9 +55,17 @@ instance.interceptors.response.use(
     if (!axios.isAxiosError<ApiFailure>(error)) return Promise.reject(error);
     const status = error.response?.status ?? 0;
     const failure = error.response?.data;
-    if (status === 401) {
-      window.localStorage.removeItem(TOKEN_KEY);
-      if (window.location.pathname !== '/login') window.location.assign('/login');
+    const authSession = error.config
+      ? (error.config as InternalAxiosRequestConfig & { authSession?: AuthSession }).authSession
+      : undefined;
+    const session = authSession ?? sessionForRequest(error.config?.url, window.location.pathname);
+    if (status === 401 && session) {
+      window.localStorage.removeItem(authTokenKeys[session]);
+      const loginPath = session === 'staff' ? '/admin/login' : '/login';
+      const activeSession = sessionForRequest('/auth/me', window.location.pathname);
+      if (session === activeSession && window.location.pathname !== loginPath) {
+        window.location.assign(loginPath);
+      }
     }
     if (failure && 'error' in failure) {
       return Promise.reject(new ApiClientError(

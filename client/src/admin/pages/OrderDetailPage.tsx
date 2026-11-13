@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../shared/api/client';
 import { useToast } from '../../shared/ui';
 import type { Order, OrderStatus } from '../../shared/types';
-import { useAdminMockStore } from '../components/AdminMockStore';
+import { useAdminDataStore } from '../components/AdminDataStore';
 import { formatPrice } from '../components/format';
 import { Section } from '../components/ui';
 
@@ -22,7 +22,7 @@ export function OrderDetailPage() {
   const { id } = useParams();
   const queryClient = useQueryClient();
   const toast = useToast();
-  const { refreshAdminData } = useAdminMockStore();
+  const { refreshAdminData } = useAdminDataStore();
   const orderQuery = useQuery({
     queryKey: ['admin', 'order', id],
     queryFn: () => api.get<Order>(`/admin/orders/${encodeURIComponent(id ?? '')}`),
@@ -58,7 +58,7 @@ export function OrderDetailPage() {
   return (
     <div className="admin-stack">
       <Section title={`Order ${order.orderNumber}`}>
-        <div className="admin-toolbar">
+        <div className="admin-toolbar admin-order-actions">
           <Link className="button ghost" to="/admin/orders">Back to orders</Link>
           <button className="button" type="button" onClick={() => window.print()}>Print invoice</button>
         </div>
@@ -84,12 +84,15 @@ export function OrderDetailPage() {
       </Section>
       <Section title="Update order status">
         {nextStatuses[order.status].length ? (
-          <div className="admin-toolbar">
-            <select aria-label="Next order status" value={nextStatus} onChange={(event) => setNextStatus(event.target.value as OrderStatus)}>
-              <option value="">Select next status</option>{nextStatuses[order.status].map((status) => <option key={status} value={status}>{status.replace(/_/g, ' ')}</option>)}
-            </select>
-            <input aria-label="Status note" placeholder="Optional note" value={note} onChange={(event) => setNote(event.target.value)} />
-            <button className="button" type="button" disabled={!nextStatus} onClick={() => void updateStatus()}>Update status</button>
+          <div className="admin-status-update">
+            <div className="admin-status-update__intro"><strong>Move this order forward</strong><span>Choose an allowed next status and optionally add an internal note.</span></div>
+            <div className="admin-status-update__controls">
+              <label><span>Next status</span><select aria-label="Next order status" value={nextStatus} onChange={(event) => setNextStatus(event.target.value as OrderStatus)}>
+                <option value="">Select next status</option>{nextStatuses[order.status].map((status) => <option key={status} value={status}>{status.replace(/_/g, ' ')}</option>)}
+              </select></label>
+              <label className="admin-status-note"><span>Internal note <small>Optional</small></span><input aria-label="Status note" placeholder="Add a note for the order history" value={note} onChange={(event) => setNote(event.target.value)} /></label>
+              <button className="button" type="button" disabled={!nextStatus} onClick={() => void updateStatus()}>Update status</button>
+            </div>
           </div>
         ) : <p>This order is in a final status and cannot be changed.</p>}
         <ol className="admin-history">{order.statusHistory.map((entry, index) => (
