@@ -28,7 +28,7 @@ npm ci
 Copy-Item .env.example .env
 ```
 
-In `server/.env`, set `MONGODB_URI` and a long random `JWT_SECRET`. The example uses `PAYSTACK_SECRET_KEY=sk_test_local_simulated`; keep `NODE_ENV=development` to use the local simulated payment flow. The server requires `PAYSTACK_PUBLIC_KEY` to be set as well, even though the current client redirects to Paystack's returned authorization URL.
+In `server/.env`, set `MONGODB_URI` and a long random `JWT_SECRET`. The example uses `PAYSTACK_SECRET_KEY=sk_test_local_simulated`; keep `NODE_ENV=development` to use the local simulated payment flow. The server requires `PAYSTACK_PUBLIC_KEY` to be set as well, even though the current client redirects to Paystack's returned authorization URL. `PENDING_PAYMENT_EXPIRATION_MINUTES` defaults to 30.
 
 There is no seed script or public first-admin creation route. Registration always creates a customer, while the admin-creation endpoint requires an existing admin. To bootstrap a development admin, register a user through the storefront, stop before exposing the app publicly, and promote that account directly in the configured MongoDB database:
 
@@ -76,19 +76,19 @@ node src/scripts/e2e-smoke.js
 
 ## Payments
 
-In local development, the exact `sk_test_local_simulated` secret uses the built-in simulated Paystack flow. No Paystack network request is made; payment verification succeeds locally, and webhooks can be exercised by the tests or smoke script.
+In local development, the exact `sk_test_local_simulated` secret uses the built-in simulated Paystack flow. No Paystack network request is made; payment verification succeeds locally, and webhooks can be exercised by the tests or smoke script. The server's expiry job runs every five minutes; it expires unpaid Paystack orders older than `PENDING_PAYMENT_EXPIRATION_MINUTES` (30 minutes by default) and releases their reserved stock and discount use.
 
-In production, set real Paystack secret and public keys and `NODE_ENV=production`. Configure Paystack to deliver events to:
+In production, set real Paystack secret and public keys and `NODE_ENV=production`. Configure the webhook in the Paystack dashboard to deliver events to:
 
 ```text
 https://<your-api-host>/api/payments/paystack/webhook
 ```
 
-Set `CLIENT_URL` to the deployed storefront URL. Never use the simulated key in production.
+Set `CLIENT_URL` to the deployed storefront URL and choose a positive `PENDING_PAYMENT_EXPIRATION_MINUTES` value if the 30-minute default is unsuitable. Never use the simulated key in production.
 
 ## Admin product uploads
 
-Admins create and edit products in the dashboard. Product photos are uploaded to the server (maximum 5 MB each). A 3D model can be uploaded as a `.glb` file (maximum 20 MB), or linked using an HTTPS `.glb` or `.gltf` URL. Upload progress and errors are shown in the editor; clear the model URL to remove a model from a product.
+Admins create and edit products in the dashboard. Product photos are uploaded to the server (maximum 5 MB each). A 3D model can be uploaded as a `.glb` file (maximum 20 MB), or linked using an HTTPS `.glb` or `.gltf` URL. Draco- and Meshopt-compressed models are supported; the Draco decoder is served locally with the client. Upload progress and errors are shown in the editor; clear the model URL to remove a model from a product.
 
 Uploaded images and models are served from `/uploads`. Keep that directory on persistent storage in production and include it in backups.
 
@@ -96,7 +96,7 @@ Uploaded images and models are served from `/uploads`. Keep that directory on pe
 
 - Set `NODE_ENV=production` and use strong, unique secrets.
 - Configure real Paystack keys and the webhook URL above.
-- Set `CLIENT_URL` to the exact deployed storefront origin.
+- Set `CLIENT_URL` to the exact HTTPS storefront origin and serve the app and uploaded/model assets over HTTPS.
 - Use a production MongoDB URI and configure regular database backups.
 - Provide persistent storage and backups for `server/uploads/`.
 - Configure SMTP settings if password-reset and order emails should be delivered.
