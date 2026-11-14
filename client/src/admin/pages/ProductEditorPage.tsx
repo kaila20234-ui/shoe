@@ -18,6 +18,7 @@ export function ProductEditorPage() {
   const [name, setName] = useState(existing?.name ?? '');
   const [brand, setBrand] = useState(existing?.brand ?? '');
   const [description, setDescription] = useState(existing?.description ?? '');
+  const [modelUrl, setModelUrl] = useState(existing?.modelUrl ?? '');
   const [audience, setAudience] = useState<Audience>(existing?.audience ?? 'men');
   const [type, setType] = useState<ShoeType>(existing?.type ?? 'sneakers');
   const [price, setPrice] = useState(existing ? String(existing.price / 100) : '');
@@ -34,6 +35,7 @@ export function ProductEditorPage() {
     setName(existing.name);
     setBrand(existing.brand);
     setDescription(existing.description);
+    setModelUrl(existing.modelUrl ?? '');
     setAudience(existing.audience);
     setType(existing.type);
     setPrice(String(existing.price / 100));
@@ -84,6 +86,7 @@ export function ProductEditorPage() {
       const input = {
         name: name.trim(),
         description: description.trim(),
+        ...(modelUrl.trim() ? { modelUrl: modelUrl.trim() } : existing ? { modelUrl: null } : {}),
         brand: brand.trim(),
         audience,
         type,
@@ -131,6 +134,7 @@ export function ProductEditorPage() {
             <label>Product name<input required value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. Classic leather trainer" /></label>
             <label>Brand<input required value={brand} onChange={(event) => setBrand(event.target.value)} placeholder="e.g. Northline" /></label>
             <label className="is-wide">Description<textarea value={description} onChange={(event) => setDescription(event.target.value)} rows={3} placeholder="Describe the materials, fit, and standout details." /></label>
+            <label className="is-wide">3D model URL <span className="admin-field-suffix">Optional · .glb</span><input type="url" value={modelUrl} onChange={(event) => setModelUrl(event.target.value)} placeholder="https://example.com/shoe.glb" /></label>
             <label>Audience<select value={audience} onChange={(event) => setAudience(event.target.value as Audience)}>{audiences.map((value) => <option key={value}>{value}</option>)}</select></label>
             <label>Shoe type<select value={type} onChange={(event) => setType(event.target.value as ShoeType)}>{shoeTypes.map((value) => <option key={value}>{value}</option>)}</select></label>
           </div>

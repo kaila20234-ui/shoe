@@ -7,7 +7,7 @@ export async function authenticate(req, _res, next) {
   const token = header?.startsWith('Bearer ') ? header.slice(7) : '';
   if (!token) return next(new ApiError(401, 'UNAUTHENTICATED', 'Authentication is required'));
   try {
-    const payload = jwt.verify(token, process.env.JWT_SECRET);
+    const payload = jwt.verify(token, process.env.JWT_SECRET, { algorithms: ['HS256'] });
     if (!payload || typeof payload !== 'object' || typeof payload.sub !== 'string') {
       return next(new ApiError(401, 'UNAUTHENTICATED', 'Invalid authentication token'));
     }
@@ -20,6 +20,11 @@ export async function authenticate(req, _res, next) {
     if (error instanceof ApiError) return next(error);
     return next(new ApiError(401, 'UNAUTHENTICATED', 'Invalid or expired authentication token'));
   }
+}
+
+export function optionalAuthenticate(req, res, next) {
+  if (!req.get('authorization')) return next();
+  return authenticate(req, res, next);
 }
 
 export function authorize(...roles) {

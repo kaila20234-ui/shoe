@@ -56,7 +56,7 @@ export function AdminDataStoreProvider({ children }: { children: ReactNode }) {
       ]);
       const spentByCustomer = new Map<string, number>();
       for (const order of orderResponse.data) {
-        if (order.paymentStatus === 'paid') {
+        if (order.customerId && order.paymentStatus === 'paid') {
           spentByCustomer.set(order.customerId, (spentByCustomer.get(order.customerId) ?? 0) + order.total);
         }
       }

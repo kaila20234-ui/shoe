@@ -5,6 +5,7 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
+    "test": "node --test",
     "test:e2e": "node src/scripts/e2e-smoke.js"
   },
   "dependencies": {

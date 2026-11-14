@@ -1,11 +1,12 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Component, lazy, Suspense, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../shared/auth/AuthContext';
 import { ApiClientError } from '../shared/api/client';
 import { formatDate, formatDateTime, formatNaira } from '../shared/lib/format';
 import { resolveAssetUrl } from '../shared/lib/assetUrl';
-import { Button, EmptyState, Input, Select, Spinner, StatusBadge } from '../shared/ui';
+import { Button, EmptyState, Input, Modal, Select, Spinner, StatusBadge } from '../shared/ui';
+import { addGuestCartItem, cartQueryKey, clearGuestCart, loadCart, readGuestCartEntries, setGuestCartItem } from './guestCart';
 import type {
   Address,
   Cart,
@@ -14,6 +15,40 @@ import type {
   ShippingAddress,
 } from '../shared/types';
 import { customerApi, type ProductQuery } from './api';
+
+const LazyProductViewer3D = lazy(() => import('./ProductViewer3D'));
+
+function isProductViewerAvailable() {
+  if (typeof window === 'undefined' || typeof document === 'undefined') return false;
+  if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return false;
+  const connection = (navigator as Navigator & { connection?: { saveData?: boolean } }).connection;
+  if (connection?.saveData) return false;
+  try {
+    const canvas = document.createElement('canvas');
+    return Boolean(canvas.getContext('webgl') || canvas.getContext('webgl2'));
+  } catch {
+    return false;
+  }
+}
+
+class ProductViewerErrorBoundary extends Component<{
+  children: ReactNode;
+  onError: () => void;
+}, { hasError: boolean }> {
+  state = { hasError: false };
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  componentDidCatch() {
+    this.props.onError();
+  }
+
+  render() {
+    return this.state.hasError ? null : this.props.children;
+  }
+}
 
 function PageError({ message }: { message: string }) {
   return <p role="alert" className="storefront-error">{message}</p>;
@@ -161,8 +196,8 @@ export function ShopPage() {
           <label>Brand<Select aria-label="Brand" value={query.brand ?? ''} onChange={(event) => update('brand', event.target.value)}><option value="">All brands</option>{(meta?.brands ?? []).map((item) => <option key={item} value={item}>{item}</option>)}</Select></label>
           <label>Size<Select aria-label="Size" value={query.size?.toString() ?? ''} onChange={(event) => update('size', event.target.value)}><option value="">All sizes</option>{(meta?.sizes ?? []).map((size) => <option key={size} value={size}>{size}</option>)}</Select></label>
           <label>Color<Select aria-label="Color" value={query.color ?? ''} onChange={(event) => update('color', event.target.value)}><option value="">All colors</option>{(meta?.colors ?? []).map((color) => <option key={color} value={color}>{color}</option>)}</Select></label>
-          <label className="block text-sm">Minimum price (₦)<Input type="number" min={meta?.priceRange.min ? meta.priceRange.min / 100 : 0} max={meta?.priceRange.max ? meta.priceRange.max / 100 : undefined} step="0.01" value={query.minPrice === undefined ? '' : query.minPrice / 100} onChange={(event) => update('minPrice', event.target.value ? String(Math.round(Number(event.target.value) * 100)) : '')} /></label>
-          <label className="block text-sm">Maximum price (₦)<Input type="number" min={meta?.priceRange.min ? meta.priceRange.min / 100 : 0} max={meta?.priceRange.max ? meta.priceRange.max / 100 : undefined} step="0.01" value={query.maxPrice === undefined ? '' : query.maxPrice / 100} onChange={(event) => update('maxPrice', event.target.value ? String(Math.round(Number(event.target.value) * 100)) : '')} /></label>
+          <label className="block text-sm">Minimum price (₦)<Input type="number" min={meta?.priceRange?.min ? meta.priceRange.min / 100 : 0} max={meta?.priceRange?.max ? meta.priceRange.max / 100 : undefined} step="0.01" value={query.minPrice === undefined ? '' : query.minPrice / 100} onChange={(event) => update('minPrice', event.target.value ? String(Math.round(Number(event.target.value) * 100)) : '')} /></label>
+          <label className="block text-sm">Maximum price (₦)<Input type="number" min={meta?.priceRange?.min ? meta.priceRange.min / 100 : 0} max={meta?.priceRange?.max ? meta.priceRange.max / 100 : undefined} step="0.01" value={query.maxPrice === undefined ? '' : query.maxPrice / 100} onChange={(event) => update('maxPrice', event.target.value ? String(Math.round(Number(event.target.value) * 100)) : '')} /></label>
           <Button type="button" onClick={() => { setSearch(new URLSearchParams()); setFiltersOpen(false); }}>Clear all filters</Button>
         </aside>
         <section>
@@ -188,20 +223,31 @@ export function ProductPage() {
   const client = useQueryClient();
   const [sku, setSku] = useState('');
   const [imageIndex, setImageIndex] = useState(0);
+  const [imagePreviewOpen, setImagePreviewOpen] = useState(false);
+  const [failedImageUrl, setFailedImageUrl] = useState('');
+  const [viewerMode, setViewerMode] = useState<'photos' | '3d'>('photos');
+  const [viewerNotice, setViewerNotice] = useState('');
   const [reviewPage, setReviewPage] = useState(1);
   const [rating, setRating] = useState('5');
   const [comment, setComment] = useState('');
   const product = useQuery({ queryKey: ['product', slug], queryFn: () => customerApi.product(slug) });
   const wishlist = useQuery({ queryKey: ['wishlist'], queryFn: customerApi.wishlist, enabled: user?.role === 'customer' });
   const reviews = useQuery({ queryKey: ['reviews', product.data?.id, reviewPage], queryFn: () => customerApi.reviews(product.data!.id, reviewPage), enabled: !!product.data });
+  useEffect(() => {
+    setViewerMode('photos');
+    setViewerNotice('');
+  }, [slug]);
   const selected = product.data?.variants.find((variant) => variant.sku === sku) ?? product.data?.variants.find((variant) => variant.stock > 0);
   const selectedVariantSku = selected?.sku ?? '';
+  const cartKey = cartQueryKey(user?.role === 'customer' ? user.id : undefined);
   const cartMutation = useMutation({
-    mutationFn: () => {
-      const current = client.getQueryData<Cart>(['cart'])?.items.find((item) => item.sku === selectedVariantSku)?.quantity ?? 0;
+    mutationFn: async () => {
+      if (user?.role !== 'customer') return addGuestCartItem(product.data!.id, selectedVariantSku);
+      const currentCart = client.getQueryData<Cart>(cartKey) ?? await customerApi.cart();
+      const current = currentCart.items.find((item) => item.sku === selectedVariantSku)?.quantity ?? 0;
       return customerApi.setCartItem(product.data!.id, selectedVariantSku, current + 1);
     },
-    onSuccess: (cart) => client.setQueryData(['cart'], cart),
+    onSuccess: (cart) => client.setQueryData(cartKey, cart),
   });
   const wishlistMutation = useMutation({
     mutationFn: () => customerApi.toggleWishlist(product.data!.id, wishlist.data?.includes(product.data!.id) ?? false),
@@ -212,15 +258,50 @@ export function ProductPage() {
     onSuccess: () => { setComment(''); void client.invalidateQueries({ queryKey: ['reviews', product.data?.id] }); },
   });
   const backToShop = <Link className="product-detail__back" to="/shop">← Back to shop</Link>;
+  function chooseViewer(mode: 'photos' | '3d') {
+    if (mode === '3d' && !isProductViewerAvailable()) {
+      setViewerMode('photos');
+      setViewerNotice('3D preview is unavailable with this device or display preference. Showing photos instead.');
+      return;
+    }
+    setViewerMode(mode);
+    setViewerNotice('');
+  }
+  function fallBackToPhotos() {
+    setViewerMode('photos');
+    setViewerNotice('The 3D model could not be displayed. Showing photos instead.');
+  }
   if (product.isLoading) return <div className="storefront-page">{backToShop}<Loading /></div>;
   if (product.isError || !product.data) return <div className="storefront-page">{backToShop}<PageError message="This product could not be found." /></div>;
   const saved = wishlist.data?.includes(product.data.id) ?? false;
+  const selectedImageUrl = resolveAssetUrl(product.data.images[imageIndex] ?? product.data.images[0]);
+  const selectedImageUnavailable = failedImageUrl === selectedImageUrl;
   return (
     <div className="storefront-page product-detail grid">
       {backToShop}
       <div className="product-detail__gallery">
-        <div className="product-detail__main-image"><img src={resolveAssetUrl(product.data.images[imageIndex] ?? product.data.images[0])} alt={product.data.name} /></div>
-        <div className="product-detail__thumbs">{product.data.images.map((image, index) => <button key={image} type="button" aria-current={imageIndex === index} aria-label={`View image ${index + 1}`} onClick={() => setImageIndex(index)}><img src={resolveAssetUrl(image)} alt="" /></button>)}</div>
+        {product.data.modelUrl && <div className="product-detail__view-toggle" role="group" aria-label="Product view">
+          <button type="button" aria-pressed={viewerMode === 'photos'} onClick={() => chooseViewer('photos')}>Photos</button>
+          <button type="button" aria-pressed={viewerMode === '3d'} onClick={() => chooseViewer('3d')}>3D</button>
+        </div>}
+        {product.data.modelUrl && viewerMode === '3d' ? (
+          <ProductViewerErrorBoundary onError={fallBackToPhotos}>
+            <Suspense fallback={<div className="product-detail__viewer-loading" role="status">Loading 3D model…</div>}>
+              <LazyProductViewer3D
+                modelUrl={product.data.modelUrl}
+                productName={product.data.name}
+                onError={fallBackToPhotos}
+              />
+            </Suspense>
+          </ProductViewerErrorBoundary>
+        ) : <div className="product-detail__main-image">{selectedImageUnavailable
+          ? <p className="product-detail__image-unavailable" role="status">Product image unavailable</p>
+          : <button type="button" className="product-detail__preview-button" aria-label={`Preview ${product.data.name} image`} onClick={() => setImagePreviewOpen(true)}>
+            <img src={selectedImageUrl} alt={product.data.name} onError={() => setFailedImageUrl(selectedImageUrl)} />
+          </button>}
+        </div>}
+        {viewerNotice && <p className="product-detail__viewer-notice" role="status">{viewerNotice}</p>}
+        <div className="product-detail__thumbs">{product.data.images.map((image, index) => <button key={image} type="button" aria-current={imageIndex === index} aria-label={`View image ${index + 1}`} onClick={() => { setImageIndex(index); chooseViewer('photos'); }}><img src={resolveAssetUrl(image)} alt="" /></button>)}</div>
       </div>
       <section className="product-detail__info">
         <p className="product-detail__brand">{product.data.brand} · {product.data.audience}</p>
@@ -234,7 +315,7 @@ export function ProductPage() {
           </Select>
         </label>
         <div className="product-detail__actions">
-          <Button disabled={!selected || selected.stock <= 0 || cartMutation.isPending} onClick={() => user?.role === 'customer' ? cartMutation.mutate() : navigate('/login', { state: { from: `${location.pathname}${location.search}` } })}>{cartMutation.isPending ? 'Adding…' : 'Add to cart'}</Button>
+          <Button disabled={!selected || selected.stock <= 0 || cartMutation.isPending} onClick={() => cartMutation.mutate()}>{cartMutation.isPending ? 'Adding…' : 'Add to cart'}</Button>
           <Button disabled={wishlistMutation.isPending} onClick={() => user?.role === 'customer' ? wishlistMutation.mutate() : navigate('/login', { state: { from: `${location.pathname}${location.search}` } })}>{saved ? 'Remove from wishlist' : '♡ Save to wishlist'}</Button>
         </div>
         {cartMutation.isError && <PageError message="Could not add this size to your cart. Check available stock and try again." />}
@@ -255,6 +336,17 @@ export function ProductPage() {
           )}
         </section>
       </section>
+      <Modal title={`${product.data.name} image preview`} open={imagePreviewOpen && !selectedImageUnavailable} onClose={() => setImagePreviewOpen(false)}>
+        <img
+          className="product-detail__image-preview"
+          src={selectedImageUrl}
+          alt={product.data.name}
+          onError={() => {
+            setFailedImageUrl(selectedImageUrl);
+            setImagePreviewOpen(false);
+          }}
+        />
+      </Modal>
     </div>
   );
 }
@@ -264,27 +356,31 @@ function ReviewRow({ review }: { review: Review }) {
 }
 
 export function CartPage() {
+  const { user } = useAuth('customer');
   const client = useQueryClient();
   const [discountCode, setDiscountCode] = useState('');
   const [discountAmount, setDiscountAmount] = useState(0);
-  const cart = useQuery({ queryKey: ['cart'], queryFn: customerApi.cart });
+  const cartKey = cartQueryKey(user?.id);
+  const cart = useQuery({ queryKey: cartKey, queryFn: () => loadCart(user?.id) });
   const itemMutation = useMutation({
-    mutationFn: ({ productId, sku, quantity }: { productId: string; sku: string; quantity: number }) => customerApi.setCartItem(productId, sku, quantity),
+    mutationFn: ({ productId, sku, quantity }: { productId: string; sku: string; quantity: number }) => user
+      ? customerApi.setCartItem(productId, sku, quantity)
+      : setGuestCartItem(productId, sku, quantity),
     onMutate: async ({ sku, quantity }) => {
-      await client.cancelQueries({ queryKey: ['cart'] });
-      const previous = client.getQueryData<Cart>(['cart']);
+      await client.cancelQueries({ queryKey: cartKey });
+      const previous = client.getQueryData<Cart>(cartKey);
       if (previous) {
         const items = quantity === 0
           ? previous.items.filter((item) => item.sku !== sku)
           : previous.items.map((item) => item.sku === sku ? { ...item, quantity } : item);
-        client.setQueryData<Cart>(['cart'], { items, subtotal: items.reduce((total, item) => total + item.unitPrice * item.quantity, 0) });
+        client.setQueryData<Cart>(cartKey, { items, subtotal: items.reduce((total, item) => total + item.unitPrice * item.quantity, 0) });
       }
       return { previous };
     },
     onError: (_error, _variables, context) => {
-      if (context?.previous) client.setQueryData(['cart'], context.previous);
+      if (context?.previous) client.setQueryData(cartKey, context.previous);
     },
-    onSuccess: (data) => client.setQueryData(['cart'], data),
+    onSuccess: (data) => client.setQueryData(cartKey, data),
   });
   const discountMutation = useMutation({
     mutationFn: () => customerApi.validateDiscount(discountCode, cart.data?.subtotal ?? 0),
@@ -299,7 +395,7 @@ export function CartPage() {
       <div className="cart-items">{contents.items.map((item) => <article key={item.sku} className="cart-item">
         <img src={resolveAssetUrl(item.image)} alt="" className="h-24 w-24 rounded-lg object-cover" />
         <div className="cart-item__details"><div><Link to={`/product/${item.productId}`} className="cart-item__name">{item.name}</Link><p className="text-sm text-gray-600">Size {item.size} · {item.color}</p><p className="mt-1 font-medium">{formatNaira(item.unitPrice)}</p>{item.quantity > item.stockAvailable && <p className="text-sm text-red-700">Only {item.stockAvailable} in stock.</p>}</div>
-          <div className="flex items-center gap-2"><Button disabled={itemMutation.isPending || item.quantity <= 1} aria-label={`Decrease ${item.name} quantity`} onClick={() => itemMutation.mutate({ productId: item.productId, sku: item.sku, quantity: item.quantity - 1 })}>−</Button><span aria-live="polite" className="min-w-6 text-center">{item.quantity}</span><Button disabled={itemMutation.isPending || item.quantity >= item.stockAvailable} aria-label={`Increase ${item.name} quantity`} onClick={() => itemMutation.mutate({ productId: item.productId, sku: item.sku, quantity: item.quantity + 1 })}>+</Button><Button disabled={itemMutation.isPending} onClick={() => itemMutation.mutate({ productId: item.productId, sku: item.sku, quantity: 0 })}>Remove</Button></div>
+          <div className="flex items-center gap-2"><Button disabled={itemMutation.isPending || item.quantity <= 1} aria-label={`Decrease ${item.name} quantity`} onClick={() => itemMutation.mutate({ productId: item.productId, sku: item.sku, quantity: item.quantity - 1 })}>−</Button><span aria-live="polite" className="min-w-6 text-center">{item.quantity}</span><Button disabled={itemMutation.isPending || item.quantity >= Math.min(item.stockAvailable, 100)} aria-label={`Increase ${item.name} quantity`} onClick={() => itemMutation.mutate({ productId: item.productId, sku: item.sku, quantity: item.quantity + 1 })}>+</Button><Button disabled={itemMutation.isPending} onClick={() => itemMutation.mutate({ productId: item.productId, sku: item.sku, quantity: 0 })}>Remove</Button></div>
         </div>
       </article>)}</div>
       {itemMutation.isError && <PageError message="We couldn't update that quantity. Please check the available stock." />}
@@ -313,7 +409,7 @@ export function CartPage() {
 }
 
 export function CheckoutPage() {
-  const { user } = useAuth('customer');
+  const { user, isLoading: authLoading } = useAuth('customer');
   const navigate = useNavigate();
   const location = useLocation();
   const client = useQueryClient();
@@ -321,10 +417,13 @@ export function CheckoutPage() {
   const [addressId, setAddressId] = useState('');
   const [newAddress, setNewAddress] = useState(false);
   const [shipping, setShipping] = useState<ShippingAddress>({ recipient: user?.name ?? '', phone: user?.phone ?? '', street: '', city: '', state: '', landmark: '' });
+  const [guestDetails, setGuestDetails] = useState({ name: '', email: '' });
+  const [placedOrderNumber, setPlacedOrderNumber] = useState('');
   const [zoneId, setZoneId] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<'paystack' | 'pay_on_delivery'>('paystack');
-  const cart = useQuery({ queryKey: ['cart'], queryFn: customerApi.cart });
-  const addresses = useQuery({ queryKey: ['addresses'], queryFn: customerApi.addresses });
+  const cartKey = cartQueryKey(user?.id);
+  const cart = useQuery({ queryKey: cartKey, queryFn: () => loadCart(user?.id) });
+  const addresses = useQuery({ queryKey: ['addresses'], queryFn: customerApi.addresses, enabled: !!user, initialData: user ? undefined : [] });
   const zones = useQuery({ queryKey: ['delivery-zones'], queryFn: customerApi.deliveryZones });
   const savedAddress = addresses.data?.find((address) => address.id === addressId);
   const usingNewAddress = newAddress || !addresses.data?.length;
@@ -347,26 +446,45 @@ export function CheckoutPage() {
     if (zoneId && !activeZones.some((zone) => zone.id === zoneId)) setZoneId('');
   }, [activeZones, zoneId]);
   const mutation = useMutation({
-    mutationFn: () => customerApi.checkout({ ...(usingNewAddress ? { shippingAddress: shipping } : { addressId }), deliveryZoneId: zoneId, paymentMethod, ...(passedDiscount && discount.data ? { discountCode: passedDiscount } : {}) }),
+    mutationFn: () => customerApi.checkout({
+      ...(user ? (usingNewAddress ? { shippingAddress: shipping } : { addressId }) : {
+        guestDetails,
+        items: readGuestCartEntries(),
+        shippingAddress: shipping,
+      }),
+      deliveryZoneId: zoneId,
+      paymentMethod,
+      ...(passedDiscount && discount.data ? { discountCode: passedDiscount } : {}),
+    }),
     onSuccess: (result) => {
-      client.setQueryData(['cart'], { items: [], subtotal: 0 });
-      if (result.paystack) window.location.assign(result.paystack.authorizationUrl);
-      else navigate(`/orders/${result.order.id}`, { replace: true });
+      client.setQueryData(cartKey, { items: [], subtotal: 0 });
+      if (!user) clearGuestCart();
+      if (result.paystack) {
+        if (!user && result.guestAccessToken) {
+          window.sessionStorage.setItem(`guest-order:${result.paystack.reference}`, result.guestAccessToken);
+        }
+        window.location.assign(result.paystack.authorizationUrl);
+      } else if (user) navigate(`/orders/${result.order.id}`, { replace: true });
+      else setPlacedOrderNumber(result.order.orderNumber);
     },
     onError: () => {
-      void client.invalidateQueries({ queryKey: ['cart'] });
+      void client.invalidateQueries({ queryKey: cartKey });
     },
   });
-  if (cart.isLoading || addresses.isLoading || zones.isLoading) return <Loading />;
+  if (authLoading || cart.isLoading || addresses.isLoading || zones.isLoading) return <Loading />;
   if (cart.isError || addresses.isError || zones.isError) return <PageError message="Checkout details could not be loaded. Please try again." />;
   const selectedZone = activeZones.find((zone) => zone.id === zoneId);
   const zoneMatchesAddress = Boolean(deliveryState && selectedZone?.states.some(
     (state) => state.trim().toLowerCase() === deliveryState.toLowerCase(),
   ));
   const subtotal = cart.data?.subtotal ?? 0;
+  if (placedOrderNumber) {
+    return <div className="storefront-page payment-result"><span className="payment-result__icon">✓</span><span className="section-eyebrow">Order received</span><PageTitle>Thank you for your order</PageTitle><p>Order <strong>{placedOrderNumber}</strong> is being prepared. We sent your confirmation to <strong>{guestDetails.email}</strong>.</p><Link to="/shop">Continue shopping</Link></div>;
+  }
   return <div className="storefront-page checkout-page"><span className="section-eyebrow">A few final details</span><PageTitle>Make it yours</PageTitle>
     {!cart.data?.items.length ? <><StoreEmpty title="Your bag is empty" description="Add a pair before checking out." /><Link to="/shop" className="mt-4 inline-block underline">Browse the collection</Link></> : <form onSubmit={(event) => { event.preventDefault(); mutation.mutate(); }} className="checkout-grid grid">
       <div className="space-y-6">
+        {!user && <section className="checkout-section"><h2 className="mb-3 text-xl font-bold">Your contact details</h2><div className="grid gap-3 sm:grid-cols-2"><label>Name<Input autoComplete="name" required value={guestDetails.name} onChange={(event) => setGuestDetails((value) => ({ ...value, name: event.target.value }))} /></label><label>Email<Input type="email" autoComplete="email" required value={guestDetails.email} onChange={(event) => setGuestDetails((value) => ({ ...value, email: event.target.value }))} /></label></div></section>}
         <section className="checkout-section"><h2 className="mb-3 text-xl font-bold">Delivery address</h2>
           {addresses.data?.length ? <div className="space-y-2">{addresses.data.map((address) => <label key={address.id} className="flex gap-3 rounded border p-3"><input type="radio" name="address" checked={!usingNewAddress && addressId === address.id} onChange={() => { setAddressId(address.id); setNewAddress(!address.state?.trim()); }} /><span>{address.label}: {address.recipient}, {address.street}, {address.city}, {address.state || 'State required'}</span></label>)}</div> : null}
           {!!addresses.data?.length && <label className="mt-3 flex items-center gap-2"><input type="checkbox" checked={newAddress} onChange={(event) => setNewAddress(event.target.checked)} />Use a new address</label>}
@@ -397,11 +515,30 @@ export function CheckoutPage() {
 export function VerifyPaymentPage() {
   const [params] = useSearchParams();
   const reference = params.get('reference') ?? '';
-  const result = useQuery({ queryKey: ['payment-verify', reference], queryFn: () => customerApi.verifyPayment(reference), enabled: !!reference, retry: false });
+  const [guestVerification, setGuestVerification] = useState(() => ({
+    reference,
+    token: reference ? window.sessionStorage.getItem(`guest-order:${reference}`) : null,
+  }));
+  useEffect(() => {
+    setGuestVerification({
+      reference,
+      token: reference ? window.sessionStorage.getItem(`guest-order:${reference}`) : null,
+    });
+  }, [reference]);
+  const guestToken = guestVerification.reference === reference ? guestVerification.token : null;
+  const result = useQuery({
+    queryKey: ['payment-verify', reference, guestToken ? 'guest' : 'customer'],
+    queryFn: async () => {
+      if (!guestToken) return customerApi.verifyPayment(reference);
+      return customerApi.verifyGuestPayment(reference, guestToken);
+    },
+    enabled: !!reference,
+    retry: false,
+  });
   if (!reference) return <div className="storefront-page"><PageError message="Payment reference is missing." /></div>;
   if (result.isLoading) return <div className="py-16 text-center"><Loading /><p>Confirming your payment…</p></div>;
-  if (result.isError || !result.data) return <div className="storefront-page payment-result"><PageError message="We could not confirm this payment yet. Check your orders before trying again." /><Link to="/orders">View my orders</Link></div>;
-  return <div className="storefront-page payment-result"><span className="payment-result__icon">✓</span><span className="section-eyebrow">All settled</span><h1>Payment confirmed</h1><p>Order <strong>{result.data.orderNumber}</strong> is being prepared.</p><Link to={`/orders/${result.data.id}`}>View order details <span aria-hidden="true">→</span></Link></div>;
+  if (result.isError || !result.data) return <div className="storefront-page payment-result"><PageError message="We could not confirm this payment yet. If your payment went through, check your email for an update." />{guestToken ? <Link to="/shop">Continue shopping</Link> : <Link to="/orders">View my orders</Link>}</div>;
+  return <div className="storefront-page payment-result"><span className="payment-result__icon">✓</span><span className="section-eyebrow">All settled</span><h1>Payment confirmed</h1><p>Order <strong>{result.data.orderNumber}</strong> is being prepared.</p>{guestToken ? <Link to="/shop">Continue shopping <span aria-hidden="true">→</span></Link> : <Link to={`/orders/${result.data.id}`}>View order details <span aria-hidden="true">→</span></Link>}</div>;
 }
 
 export function OrdersPage() {

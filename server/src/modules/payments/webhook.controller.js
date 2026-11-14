@@ -32,7 +32,16 @@ export async function paystackWebhook(req, res) {
     throw new ApiError(400, 'VALIDATION_ERROR', 'Invalid Paystack webhook data');
   }
   if (event.event === 'charge.success') {
-    await confirmSuccessfulPayment(data);
+    try {
+      await confirmSuccessfulPayment(data);
+    } catch (error) {
+      console.error('Paystack charge.success could not be reconciled.', {
+        reference: data.reference,
+        event: event.event,
+        reason: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
   } else if (event.event === 'charge.failed' || event.event === 'charge.abandoned') {
     await failPendingPayment(data.reference);
   }

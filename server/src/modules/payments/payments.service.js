@@ -1,3 +1,4 @@
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { Order, Transaction } from '../../models/index.js';
 import ApiError from '../../utils/ApiError.js';
 import { sendMail } from '../../utils/mailer.js';
@@ -40,6 +41,10 @@ export async function confirmSuccessfulPayment({ reference, amount, currency }) 
     await Transaction.updateOne({ reference }, { $set: { status: 'success' } });
     return current;
   }
+  const review = await Transaction.updateOne({ reference }, { $set: { status: 'needs_review' } });
+  if (!review.matchedCount) {
+    throw new ApiError(500, 'INTERNAL', `Could not flag Paystack transaction ${reference} for manual review`);
+  }
   throw new ApiError(409, 'CONFLICT', 'Paystack payment was confirmed, but the order status could not be updated');
 }
 
@@ -48,7 +53,28 @@ export async function verifyForCustomer(userId, reference) {
   if (!order) throw new ApiError(404, 'NOT_FOUND', 'Order not found');
   if (order.paymentMethod !== 'paystack') throw new ApiError(400, 'VALIDATION_ERROR', 'Order does not use Paystack');
   if (order.paymentStatus === 'paid') return order;
-  const payment = await verifyPayment(reference);
+  const payment = await verifyPayment(reference, order.total);
+  if (payment.status !== 'success' || payment.reference !== reference
+    || payment.amount !== order.total || payment.currency !== 'NGN') {
+    throw new ApiError(402, 'PAYMENT_FAILED', 'Paystack payment details do not match this order');
+  }
+  return confirmSuccessfulPayment(payment);
+}
+
+export async function verifyForGuest(reference, token) {
+  const order = await Order.findOne({ orderNumber: reference, paymentMethod: 'paystack' })
+    .select('+guestAccessTokenHash +guestAccessTokenExpiresAt');
+  if (!order?.guestAccessTokenHash || !order.guestAccessTokenExpiresAt
+    || order.guestAccessTokenExpiresAt <= new Date() || typeof token !== 'string') {
+    throw new ApiError(404, 'NOT_FOUND', 'Guest order could not be verified');
+  }
+  const expected = Buffer.from(order.guestAccessTokenHash, 'hex');
+  const provided = createHash('sha256').update(token).digest();
+  if (expected.length !== provided.length || !timingSafeEqual(expected, provided)) {
+    throw new ApiError(404, 'NOT_FOUND', 'Guest order could not be verified');
+  }
+  if (order.paymentStatus === 'paid') return order;
+  const payment = await verifyPayment(reference, order.total);
   if (payment.status !== 'success' || payment.reference !== reference
     || payment.amount !== order.total || payment.currency !== 'NGN') {
     throw new ApiError(402, 'PAYMENT_FAILED', 'Paystack payment details do not match this order');

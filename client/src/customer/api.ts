@@ -75,6 +75,8 @@ export const customerApi = {
     data(api.post<Order>(`/orders/${encodeURIComponent(id)}/cancel`)),
   verifyPayment: (reference: string) =>
     data(api.get<Order>(`/payments/verify/${encodeURIComponent(reference)}`)),
+  verifyGuestPayment: (reference: string, token: string) =>
+    data(api.post<Order>(`/payments/guest-verify/${encodeURIComponent(reference)}`, { token })),
   createReturn: (body: {
     orderId: string;
     items: { sku: string; quantity: number }[];

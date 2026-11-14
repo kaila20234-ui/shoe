@@ -7,6 +7,8 @@ function documentTransform(_document, value) {
   delete value.passwordHash;
   delete value.resetPasswordTokenHash;
   delete value.resetPasswordExpiresAt;
+  delete value.guestAccessTokenHash;
+  delete value.guestAccessTokenExpiresAt;
   return value;
 }
 
@@ -60,6 +62,7 @@ const productSchema = new mongoose.Schema({
   price: { type: Number, required: true, min: 1 },
   salePrice: { type: Number, min: 1 },
   images: { type: [String], required: true, validate: (items) => items.length > 0 },
+  modelUrl: { type: String, trim: true },
   variants: { type: [variantSchema], required: true, validate: (items) => items.length > 0 },
   isActive: { type: Boolean, default: true },
   ratingAverage: { type: Number, min: 0, max: 5, default: 0 },
@@ -130,12 +133,16 @@ const statusHistorySchema = new mongoose.Schema({
 
 const orderSchema = new mongoose.Schema({
   orderNumber: { type: String, required: true, unique: true },
-  customerId: { type: String, required: true, index: true },
+  customerId: { type: String, index: true },
+  guestAccessTokenHash: { type: String, select: false },
+  guestAccessTokenExpiresAt: { type: Date, select: false },
   customerName: { type: String, required: true },
   customerEmail: { type: String, required: true },
   items: { type: [orderItemSchema], required: true },
   subtotal: { type: Number, required: true, min: 0 },
   discountCode: String,
+  discountUseReleased: { type: Boolean, select: false },
+  manualReviewRequired: { type: Boolean, select: false },
   discountAmount: { type: Number, required: true, min: 0, default: 0 },
   deliveryFee: { type: Number, required: true, min: 0 },
   total: { type: Number, required: true, min: 0 },
@@ -156,11 +163,11 @@ const transactionSchema = new mongoose.Schema({
   reference: { type: String, required: true, unique: true },
   orderId: { type: String, required: true, index: true },
   orderNumber: { type: String, required: true },
-  customerId: { type: String, required: true, index: true },
+  customerId: { type: String, index: true },
   customerName: { type: String, required: true },
   amount: { type: Number, required: true, min: 0 },
   method: { type: String, enum: ['paystack', 'pay_on_delivery'], required: true },
-  status: { type: String, enum: ['pending', 'success', 'failed', 'refunded'], required: true },
+  status: { type: String, enum: ['pending', 'success', 'failed', 'refunded', 'needs_review'], required: true },
 }, documentOptions);
 
 const reviewSchema = new mongoose.Schema({

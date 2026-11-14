@@ -2,9 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '../auth/AuthContext';
-import { api } from '../api/client';
 import { resolveAssetUrl } from '../lib/assetUrl';
-import type { Cart } from '../types';
+import { cartQueryKey, loadCart } from '../../customer/guestCart';
 
 export function CustomerLayout() {
   const { user, logout } = useAuth('customer');
@@ -12,9 +11,8 @@ export function CustomerLayout() {
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const accountMenuRef = useRef<HTMLDivElement>(null);
   const cartQuery = useQuery({
-    queryKey: ['cart'],
-    queryFn: async () => (await api.get<Cart>('/cart')).data,
-    enabled: user?.role === 'customer',
+    queryKey: cartQueryKey(user?.role === 'customer' ? user.id : undefined),
+    queryFn: () => user?.role === 'customer' ? loadCart(user.id) : loadCart(),
   });
   const cartCount = cartQuery.data?.items.reduce((sum, item) => sum + item.quantity, 0) ?? 0;
 

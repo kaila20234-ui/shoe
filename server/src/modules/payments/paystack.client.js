@@ -37,12 +37,16 @@ export async function initializePayment({ email, amount, reference }) {
       email,
       amount,
       reference,
-      callback_url: `${process.env.CLIENT_URL}/checkout/verify`,
+      callback_url: `${process.env.CLIENT_URL || 'http://localhost:5173'}/checkout/verify`,
     }),
   });
 }
 
-export async function verifyPayment(reference) {
+export async function verifyPayment(reference, amount) {
+  if (process.env.PAYSTACK_SECRET_KEY === 'sk_test_local_simulated'
+    && process.env.NODE_ENV !== 'production') {
+    return { status: 'success', reference, amount, currency: 'NGN' };
+  }
   return paystackRequest(`/transaction/verify/${encodeURIComponent(reference)}`, { method: 'GET' });
 }
 

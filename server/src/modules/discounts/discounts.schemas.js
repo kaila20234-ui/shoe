@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 export const validateDiscountSchema = z.object({
   code: z.string().trim().min(1).transform((value) => value.toUpperCase()),
-  subtotal: z.number().int().min(0).optional(),
+  subtotal: z.number().int().min(0),
 });
 
 const discountFieldsSchema = z.object({
