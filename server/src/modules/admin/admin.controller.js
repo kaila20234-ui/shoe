@@ -1,8 +1,24 @@
-import { Order } from '../../models/index.js';
+import { unlink } from 'node:fs/promises';
+import { Order, Product } from '../../models/index.js';
 import ApiError from '../../utils/ApiError.js';
 import { logAudit } from '../../utils/audit.js';
+import { resolveUploadedModelPath } from '../../utils/modelUpload.js';
 import { ok } from '../../utils/respond.js';
 import * as service from './admin.service.js';
+
+async function removeOrphanedModel(modelUrl) {
+  const filePath = resolveUploadedModelPath(modelUrl);
+  if (!filePath) return;
+
+  try {
+    await unlink(filePath);
+  } catch (error) {
+    console.error('Unable to delete orphaned product model file.', {
+      modelUrl,
+      reason: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
 
 async function audited(req, action, entity, entityId, meta) {
   await logAudit(req, { action, entity, entityId: String(entityId), meta });
@@ -24,13 +40,18 @@ export async function createProduct(req, res) {
 }
 
 export async function updateProduct(req, res) {
+  const hasModelUrl = Object.prototype.hasOwnProperty.call(req.body ?? {}, 'modelUrl');
+  const previousModel = hasModelUrl ? await Product.findById(req.params.id, 'modelUrl') : null;
   const product = await service.updateProduct(req.params.id, req.body);
+  if (previousModel?.modelUrl !== product.modelUrl) await removeOrphanedModel(previousModel?.modelUrl);
   await audited(req, 'product.update', 'product', product.id);
   return ok(res, product);
 }
 
 export async function deleteProduct(req, res) {
+  const previousModel = await Product.findById(req.params.id, 'modelUrl');
   const product = await service.updateProduct(req.params.id, { isActive: false });
+  await removeOrphanedModel(previousModel?.modelUrl);
   await audited(req, 'product.delete', 'product', product.id);
   return ok(res, {});
 }

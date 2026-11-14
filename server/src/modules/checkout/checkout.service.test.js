@@ -90,6 +90,43 @@ test('createCheckout accepts a guest cart and contact details', async (t) => {
   assert.deepEqual(stockUpdates, [-1]);
 });
 
+test('Paystack initialization uses the stored order total in kobo', async (t) => {
+  const previousSecret = process.env.PAYSTACK_SECRET_KEY;
+  process.env.PAYSTACK_SECRET_KEY = 'sk_test_payment-amount';
+  t.after(() => {
+    if (previousSecret === undefined) delete process.env.PAYSTACK_SECRET_KEY;
+    else process.env.PAYSTACK_SECRET_KEY = previousSecret;
+  });
+
+  let orderInput;
+  let initializedPayment;
+  t.mock.method(globalThis, 'fetch', async (_url, options) => {
+    initializedPayment = JSON.parse(options.body);
+    return {
+      ok: true,
+      json: async () => ({
+        status: true,
+        data: {
+          authorization_url: 'https://paystack.example/checkout',
+          reference: initializedPayment.reference,
+        },
+      }),
+    };
+  });
+  setupCheckoutMocks(t, {
+    createOrder: async (order) => {
+      orderInput = order;
+      return { ...order, id: 'order-payment-amount' };
+    },
+  });
+
+  await createCheckout('customer-1', { ...checkoutInput, paymentMethod: 'paystack' });
+
+  assert.equal(orderInput.total, 10500);
+  assert.equal(initializedPayment.amount, 10500);
+  assert.equal(initializedPayment.amount, orderInput.total);
+});
+
 test('guest Paystack checkout returns a token but stores only its hash', async (t) => {
   const previousSecret = process.env.PAYSTACK_SECRET_KEY;
   const previousEnvironment = process.env.NODE_ENV;

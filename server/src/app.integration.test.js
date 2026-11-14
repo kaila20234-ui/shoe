@@ -6,7 +6,7 @@ import { unlink } from 'node:fs/promises';
 import { basename, resolve } from 'node:path';
 import app from './app.js';
 import { uploadsDirectory } from './config/uploads.js';
-import { AuditLog, User } from './models/index.js';
+import { AuditLog, Order, Transaction, User } from './models/index.js';
 
 const webhookSecret = 'express-webhook-integration-test-secret';
 const jwtSecret = 'express-upload-integration-test-secret';
@@ -40,22 +40,53 @@ after(async () => {
   else process.env.JWT_SECRET = previousJwtSecret;
 });
 
-test('Express Paystack webhook accepts a valid signature over the raw body', async () => {
+test('Express Paystack webhook marks a valid payment paid and handles repeated delivery idempotently', async (t) => {
+  const reference = 'SS-20261114-10203';
+  const amount = 12500;
+  let currentOrder = {
+    orderNumber: reference,
+    total: amount,
+    paymentMethod: 'paystack',
+    paymentStatus: 'unpaid',
+    status: 'pending_payment',
+    statusHistory: [],
+    customerEmail: 'customer@example.com',
+  };
+  const orderLookup = t.mock.method(Order, 'findOne', async () => currentOrder);
+  const orderUpdate = t.mock.method(Order, 'findOneAndUpdate', async (filter, update) => {
+    assert.equal(filter.orderNumber, reference);
+    assert.equal(filter.status, 'pending_payment');
+    assert.equal(filter.paymentStatus, 'unpaid');
+    currentOrder = {
+      ...currentOrder,
+      ...update.$set,
+      statusHistory: [...currentOrder.statusHistory, update.$push.statusHistory],
+    };
+    return currentOrder;
+  });
+  const transactionUpdate = t.mock.method(Transaction, 'updateOne', async () => ({ matchedCount: 1, modifiedCount: 1 }));
+  t.mock.method(console, 'info', () => {});
   const body = Buffer.from(JSON.stringify({
-    event: 'integration.test',
-    data: { reference: 'webhook-integration-test', amount: 1 },
+    event: 'charge.success',
+    data: { reference, amount, currency: 'NGN' },
   }));
   const signature = createHmac('sha512', webhookSecret).update(body).digest('hex');
-  const response = await fetch(`${origin}/api/payments/paystack/webhook`, {
+  const deliver = () => fetch(`${origin}/api/payments/paystack/webhook`, {
     method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'x-paystack-signature': signature,
-    },
+    headers: { 'content-type': 'application/json', 'x-paystack-signature': signature },
     body,
   });
+  const response = await deliver();
+  const repeated = await deliver();
 
   assert.equal(response.status, 200);
+  assert.equal(repeated.status, 200);
+  assert.equal(currentOrder.status, 'paid');
+  assert.equal(currentOrder.paymentStatus, 'paid');
+  assert.equal(currentOrder.statusHistory.filter(({ status }) => status === 'paid').length, 1);
+  assert.equal(orderLookup.mock.callCount(), 2);
+  assert.equal(orderUpdate.mock.callCount(), 1);
+  assert.equal(transactionUpdate.mock.callCount(), 2);
 });
 
 test('Express Paystack webhook rejects a bad signature', async () => {
@@ -125,8 +156,13 @@ test('admin can upload and retrieve a valid GLB model', async (t) => {
   assert.match(result.data.url, /^\/uploads\/models\/[0-9a-f-]{36}\.glb$/i);
   const filePath = resolve(uploadsDirectory, 'models', basename(result.data.url));
   try {
-    const storedResponse = await fetch(`${origin}${result.data.url}`);
+    const storedResponse = await fetch(`${origin}${result.data.url}`, {
+      headers: { origin: 'http://localhost:5173' },
+    });
     assert.equal(storedResponse.status, 200);
+    assert.equal(storedResponse.headers.get('access-control-allow-origin'), 'http://localhost:5173');
+    assert.equal(storedResponse.headers.get('vary'), 'Origin');
+    assert.equal(storedResponse.headers.get('content-type'), 'model/gltf-binary');
     assert.deepEqual(Buffer.from(await storedResponse.arrayBuffer()), content);
   } finally {
     await unlink(filePath);

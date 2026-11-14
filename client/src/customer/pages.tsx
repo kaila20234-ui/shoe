@@ -18,16 +18,26 @@ import { customerApi, type ProductQuery } from './api';
 
 const LazyProductViewer3D = lazy(() => import('./ProductViewer3D'));
 
+let webGLSupported: boolean | undefined;
+
+function supportsWebGL() {
+  if (webGLSupported !== undefined) return webGLSupported;
+  try {
+    const canvas = document.createElement('canvas');
+    const context = canvas.getContext('webgl') || canvas.getContext('webgl2');
+    webGLSupported = Boolean(context);
+    context?.getExtension('WEBGL_lose_context')?.loseContext();
+  } catch {
+    webGLSupported = false;
+  }
+  return webGLSupported;
+}
+
 function isProductViewerAvailable() {
   if (typeof window === 'undefined' || typeof document === 'undefined') return false;
   const connection = (navigator as Navigator & { connection?: { saveData?: boolean } }).connection;
   if (connection?.saveData) return false;
-  try {
-    const canvas = document.createElement('canvas');
-    return Boolean(canvas.getContext('webgl') || canvas.getContext('webgl2'));
-  } catch {
-    return false;
-  }
+  return supportsWebGL();
 }
 
 class ProductViewerErrorBoundary extends Component<{

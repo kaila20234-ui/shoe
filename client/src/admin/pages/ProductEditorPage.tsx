@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import type { Audience, Product, ShoeType } from '../../shared/types';
 import { api } from '../../shared/api/client';
@@ -8,6 +8,7 @@ import { Section } from '../components/ui';
 
 const audiences: Audience[] = ['men', 'women', 'kids'];
 const shoeTypes: ShoeType[] = ['sneakers', 'formal', 'sandals', 'boots', 'sports'];
+const maxModelFileSize = 20 * 1024 * 1024;
 
 function isValidModelUrl(value: string) {
   if (/^\/uploads\/models\/[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}\.glb$/i.test(value)) return true;
@@ -36,6 +37,9 @@ export function ProductEditorPage() {
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [modelFile, setModelFile] = useState<File | null>(null);
   const modelFileInputRef = useRef<HTMLInputElement>(null);
+  const [modelUploadProgress, setModelUploadProgress] = useState<number | null>(null);
+  const [modelUploadError, setModelUploadError] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
   const [sku, setSku] = useState(existing?.variants[0]?.sku ?? '');
   const [size, setSize] = useState(existing ? String(existing.variants[0]?.size ?? '') : '');
   const [color, setColor] = useState(existing?.variants[0]?.color ?? '');
@@ -49,6 +53,8 @@ export function ProductEditorPage() {
     setDescription(existing.description);
     setModelUrl(existing.modelUrl ?? '');
     setModelFile(null);
+    setModelUploadProgress(null);
+    setModelUploadError('');
     if (modelFileInputRef.current) modelFileInputRef.current.value = '';
     setAudience(existing.audience);
     setType(existing.type);
@@ -61,9 +67,43 @@ export function ProductEditorPage() {
     setStock(String(existing.variants[0]?.stock ?? 0));
   }, [existing?.id]);
 
+  function handleModelFileChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0] ?? null;
+    setError('');
+    setModelUploadError('');
+    setModelUploadProgress(null);
+    if (!file) {
+      setModelFile(null);
+      return;
+    }
+    if (!file.name.toLowerCase().endsWith('.glb')) {
+      setModelFile(null);
+      setModelUploadError('Choose a file with the .glb extension.');
+      event.target.value = '';
+      return;
+    }
+    if (file.size > maxModelFileSize) {
+      setModelFile(null);
+      setModelUploadError('GLB model must be 20 MB or smaller.');
+      event.target.value = '';
+      return;
+    }
+    setModelFile(file);
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    setError('');
+    setModelUploadError('');
     const normalizedModelUrl = modelUrl.trim();
+    if (modelFile && !modelFile.name.toLowerCase().endsWith('.glb')) {
+      setModelUploadError('Choose a file with the .glb extension.');
+      return;
+    }
+    if (modelFile && modelFile.size > maxModelFileSize) {
+      setModelUploadError('GLB model must be 20 MB or smaller.');
+      return;
+    }
     if (!modelFile && normalizedModelUrl && !isValidModelUrl(normalizedModelUrl)) {
       setError('3D model URL must be an HTTPS link ending in .glb or .gltf.');
       return;
@@ -94,6 +134,7 @@ export function ProductEditorPage() {
       color: color.trim(),
       stock: Number(stock),
     };
+    setIsSaving(true);
     try {
       let images = existing?.images ?? [];
       if (imageFile) {
@@ -106,8 +147,27 @@ export function ProductEditorPage() {
       if (modelFile) {
         const formData = new FormData();
         formData.append('model', modelFile);
-        const { data: uploaded } = await api.post<{ url: string }>('/admin/uploads/model', formData);
+        setModelUploadProgress(0);
+        let uploaded: { url: string };
+        try {
+          const result = await api.post<{ url: string }>('/admin/uploads/model', formData, {
+            onUploadProgress: (progress) => {
+              const total = progress.total ?? modelFile.size;
+              if (total > 0) setModelUploadProgress(Math.min(100, Math.round((progress.loaded / total) * 100)));
+            },
+          });
+          uploaded = result.data;
+        } catch (uploadError) {
+          const message = uploadError instanceof Error ? uploadError.message : 'Unable to upload the GLB model.';
+          setModelUploadError(`Model upload failed: ${message}`);
+          setModelUploadProgress(null);
+          throw uploadError;
+        }
         savedModelUrl = uploaded.url;
+        setModelUrl(uploaded.url);
+        setModelFile(null);
+        if (modelFileInputRef.current) modelFileInputRef.current.value = '';
+        setModelUploadProgress(100);
       }
       const input = {
         name: name.trim(),
@@ -138,6 +198,8 @@ export function ProductEditorPage() {
       const message = saveError instanceof Error ? saveError.message : 'Unable to save product.';
       setError(message);
       toast.error(message);
+    } finally {
+      setIsSaving(false);
     }
   }
 
@@ -160,8 +222,10 @@ export function ProductEditorPage() {
             <label>Product name<input required value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. Classic leather trainer" /></label>
             <label>Brand<input required value={brand} onChange={(event) => setBrand(event.target.value)} placeholder="e.g. Northline" /></label>
             <label className="is-wide">Description<textarea value={description} onChange={(event) => setDescription(event.target.value)} rows={3} placeholder="Describe the materials, fit, and standout details." /></label>
-            <label className="is-wide">3D model URL <span className="admin-field-suffix">Optional · HTTPS .glb or .gltf</span><input type="text" inputMode="url" value={modelUrl} onChange={(event) => { setModelUrl(event.target.value); if (modelFile) { setModelFile(null); if (modelFileInputRef.current) modelFileInputRef.current.value = ''; } }} placeholder="https://example.com/shoe.glb" /></label>
-            <label className="is-wide">Or upload a GLB file <span className="admin-field-suffix">Maximum 20 MB</span><input ref={modelFileInputRef} type="file" accept=".glb,model/gltf-binary,application/octet-stream" onChange={(event) => { const file = event.target.files?.[0] ?? null; setModelFile(file); if (file) setModelUrl(''); }} /></label>
+            <label className="is-wide">3D model URL <span className="admin-field-suffix">Optional · HTTPS .glb or .gltf</span><input type="text" inputMode="url" value={modelUrl} onChange={(event) => { setModelUrl(event.target.value); setModelUploadError(''); setModelUploadProgress(null); if (modelFile) { setModelFile(null); if (modelFileInputRef.current) modelFileInputRef.current.value = ''; } }} placeholder="https://example.com/shoe.glb" /></label>
+            <label className="is-wide">Or upload a GLB file <span className="admin-field-suffix">Maximum 20 MB</span><input ref={modelFileInputRef} type="file" accept=".glb,model/gltf-binary,application/octet-stream" onChange={handleModelFileChange} /></label>
+            {modelUploadProgress !== null && <div className="is-wide" role="status" aria-live="polite"><progress aria-label="3D model upload progress" max={100} value={modelUploadProgress} /> <span>{modelUploadProgress === 100 ? '3D model uploaded.' : `Uploading 3D model: ${modelUploadProgress}%`}</span></div>}
+            {modelUploadError && <p className="admin-error is-wide" role="alert">{modelUploadError}</p>}
             <label>Audience<select value={audience} onChange={(event) => setAudience(event.target.value as Audience)}>{audiences.map((value) => <option key={value}>{value}</option>)}</select></label>
             <label>Shoe type<select value={type} onChange={(event) => setType(event.target.value as ShoeType)}>{shoeTypes.map((value) => <option key={value}>{value}</option>)}</select></label>
           </div>
@@ -195,7 +259,7 @@ export function ProductEditorPage() {
           <span>Review the details before publishing this product.</span>
           <div className="admin-actions">
             <Link className="button ghost" to="/admin/products">Cancel</Link>
-            <button className="button" type="submit">{existing ? 'Save product changes' : 'Create product'}</button>
+            <button className="button" type="submit" disabled={isSaving}>{isSaving ? 'Saving product…' : existing ? 'Save product changes' : 'Create product'}</button>
           </div>
         </div>
       </form>
