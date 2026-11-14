@@ -3,7 +3,7 @@ import { useAuth } from '../auth/AuthContext';
 import { Button } from '../ui';
 
 export function OwnerLayout() {
-  const { logout, user } = useAuth();
+  const { logout, user } = useAuth('staff');
   return (
     <div className="shared-layout">
       <header className="shared-nav shared-owner-top">

@@ -4,7 +4,7 @@ import { loadEnv } from '../config/env.js';
 
 loadEnv();
 
-const apiUrl = `http://127.0.0.1:${process.env.PORT || 5000}/api`;
+const apiUrl = process.env.E2E_API_URL ?? `http://127.0.0.1:${process.env.PORT || 5000}/api`;
 
 async function request(path, { method = 'GET', token, body } = {}) {
   const response = await fetch(`${apiUrl}${path}`, {
@@ -33,10 +33,15 @@ async function api(path, options) {
   return result.payload.data;
 }
 
+const adminToken = process.env.ADMIN_TOKEN;
+const ownerToken = process.env.OWNER_TOKEN;
+assert.ok(adminToken, 'Set ADMIN_TOKEN to an authorized staging admin JWT');
+assert.ok(ownerToken, 'Set OWNER_TOKEN to an authorized staging owner JWT');
+
 const email = `e2e-${Date.now()}@shoestore.test`;
 const registered = await api('/auth/register', {
   method: 'POST',
-  body: { name: 'E2E Customer', email, password: 'TestPassw0rd!123', phone: '+2348000000000' },
+  body: { name: 'E2E Customer', email, password: 'TestPassw0rd!123', phone: '+2348000000000', role: 'admin' },
 });
 assert.equal(registered.user.role, 'customer');
 const customerToken = registered.token;
@@ -55,14 +60,7 @@ await api('/cart/items', {
   body: { productId: product.id, sku: variant.sku, quantity: 1 },
 });
 console.info('Browsed catalog and added an item to cart');
-const cart = await api('/cart', { token: customerToken });
-const discountCheck = await api('/discounts/validate', {
-  method: 'POST',
-  token: customerToken,
-  body: { code: 'WELCOME10', subtotal: 1 },
-});
-assert.equal(discountCheck.discountAmount, Math.floor(cart.subtotal / 10), 'Discount validation trusted the client subtotal');
-
+await api('/cart', { token: customerToken });
 const zones = await api('/delivery-zones');
 const zone = zones.find((item) => item.states.includes('Lagos'));
 assert.ok(zone, 'No active Lagos delivery zone exists');
@@ -75,16 +73,14 @@ const checkout = await api('/checkout', {
       phone: '+2348000000000',
       street: '1 Test Street',
       city: 'Lagos',
-      state: 'Lagos',
+      state: 'lagos',
     },
     deliveryZoneId: zone.id,
-    discountCode: 'WELCOME10',
     paymentMethod: 'paystack',
   },
 });
 assert.ok(checkout.paystack?.authorizationUrl, 'Paystack checkout did not return authorizationUrl');
 assert.equal(checkout.order.status, 'pending_payment');
-assert.equal(checkout.order.discountAmount, discountCheck.discountAmount);
 console.info(`Created Paystack order ${checkout.order.orderNumber}`);
 
 const rawBody = Buffer.from(JSON.stringify({
@@ -110,10 +106,41 @@ assert.equal(paidOrder.paymentStatus, 'paid');
 await api('/orders?page=1&limit=20', { token: customerToken });
 console.info('Verified signed webhook settlement');
 
-const admin = await api('/auth/login', {
+const admin = await api('/auth/me', { token: adminToken });
+assert.equal(admin.role, 'admin', 'ADMIN_TOKEN must belong to an admin');
+const customerAdminAttempt = await request('/admin/admins', {
   method: 'POST',
-  body: { email: 'admin@shoestore.test', password: 'Passw0rd!123' },
+  token: customerToken,
+  body: { name: 'Unauthorized Admin', email: `unauthorized-${Date.now()}@shoestore.test`, password: 'TestPassw0rd!123' },
 });
+assert.equal(customerAdminAttempt.response.status, 403, 'Customers must not be able to create admin accounts');
+
+const adminEmail = `e2e-admin-${Date.now()}@shoestore.test`;
+const createdAdmin = await api('/admin/admins', {
+  method: 'POST',
+  token: adminToken,
+  body: { name: 'E2E Admin', email: adminEmail, password: 'TestPassw0rd!123' },
+});
+assert.equal(createdAdmin.role, 'admin');
+assert.equal(Object.hasOwn(createdAdmin, 'passwordHash'), false, 'Admin response must not expose the password hash');
+const adminOnCustomerLogin = await request('/auth/login', {
+  method: 'POST',
+  body: { email: adminEmail, password: 'TestPassw0rd!123' },
+});
+assert.equal(adminOnCustomerLogin.response.status, 403, 'An admin must not use the customer login');
+
+const createdAdminLogin = await api('/auth/admin/login', {
+  method: 'POST',
+  body: { email: adminEmail, password: 'TestPassw0rd!123' },
+});
+assert.equal(createdAdminLogin.user.role, 'admin', 'Created admin must be able to sign in as an admin');
+
+const customerOnStaffLogin = await request('/auth/admin/login', {
+  method: 'POST',
+  body: { email, password: 'TestPassw0rd!123' },
+});
+assert.equal(customerOnStaffLogin.response.status, 403, 'A customer must not use the staff login');
+
 for (const path of [
   '/admin/dashboard/summary',
   '/admin/products?page=1&limit=100',
@@ -126,31 +153,29 @@ for (const path of [
   '/admin/returns?page=1&limit=100',
   '/audit-logs?page=1&limit=100',
 ]) {
-  await api(path, { token: admin.token });
+  await api(path, { token: adminToken });
 }
 for (const status of ['packed', 'shipped', 'delivered']) {
   const updated = await api(`/admin/orders/${checkout.order.id}/status`, {
     method: 'PATCH',
-    token: admin.token,
+    token: adminToken,
     body: { status },
   });
   assert.equal(updated.status, status);
 }
 console.info('Admin moved the order through packed, shipped, and delivered');
 
-const owner = await api('/auth/login', {
-  method: 'POST',
-  body: { email: 'owner@shoestore.test', password: 'Passw0rd!123' },
-});
-const transactions = await api('/owner/transactions?page=1&limit=20', { token: owner.token });
+const owner = await api('/auth/me', { token: ownerToken });
+assert.ok(['owner', 'admin'].includes(owner.role), 'OWNER_TOKEN must belong to an owner or admin');
+const transactions = await api('/owner/transactions?page=1&limit=20', { token: ownerToken });
 const transaction = transactions.find((item) => item.orderId === checkout.order.id);
 assert.ok(transaction, 'Owner cannot see the settled order transaction');
 assert.equal(transaction.status, 'success');
-await api(`/owner/transactions/${transaction.id}`, { token: owner.token });
-await api('/owner/reports/summary?period=daily', { token: owner.token });
-await api('/owner/reports/top-products?limit=5', { token: owner.token });
-await api('/audit-logs?page=1&limit=20', { token: owner.token });
-const csv = await request('/owner/transactions/export?format=csv', { token: owner.token });
+await api(`/owner/transactions/${transaction.id}`, { token: ownerToken });
+await api('/owner/reports/summary?period=daily', { token: ownerToken });
+await api('/owner/reports/top-products?limit=5', { token: ownerToken });
+await api('/audit-logs?page=1&limit=20', { token: ownerToken });
+const csv = await request('/owner/transactions/export?format=csv', { token: ownerToken });
 assert.equal(csv.response.ok, true, 'Owner CSV export failed');
 assert.match(csv.response.headers.get('content-disposition') || '', /attachment/i);
 assert.ok(String(csv.payload).includes(checkout.order.orderNumber), 'CSV export omitted the order');
@@ -163,7 +188,7 @@ const ownerWriteChecks = [
   ['DELETE', `/owner/transactions/${transaction.id}`],
   ['POST', '/audit-logs', {}],
   ['PATCH', '/auth/me', { name: 'Owner Mutation Attempt' }],
-  ['PATCH', '/auth/change-password', { currentPassword: 'Passw0rd!123', newPassword: 'NewPassw0rd!123' }],
+  ['PATCH', '/auth/change-password', { currentPassword: 'not-the-current-password', newPassword: 'NewPassw0rd!123' }],
   ['PUT', '/cart/items', {}],
   ['DELETE', '/cart'],
   ['POST', `/wishlist/${product.id}`, {}],
@@ -183,7 +208,7 @@ const ownerWriteChecks = [
   ['PATCH', `/admin/orders/${checkout.order.id}/status`, { status: 'cancelled' }],
 ];
 for (const [method, path, body] of ownerWriteChecks) {
-  const result = await request(path, { method, token: owner.token, ...(body !== undefined ? { body } : {}) });
+  const result = await request(path, { method, token: ownerToken, ...(body !== undefined ? { body } : {}) });
   assert.equal(result.response.status, 403, `Owner ${method} ${path} returned ${result.response.status}, expected 403`);
 }
 

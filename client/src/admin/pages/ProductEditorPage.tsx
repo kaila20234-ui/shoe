@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import type { Audience, Product, ShoeType } from '../../shared/types';
 import { api } from '../../shared/api/client';
 import { useToast } from '../../shared/ui';
-import { useAdminMockStore } from '../components/AdminMockStore';
+import { useAdminDataStore } from '../components/AdminDataStore';
 import { Section } from '../components/ui';
 
 const audiences: Audience[] = ['men', 'women', 'kids'];
@@ -12,17 +12,17 @@ const shoeTypes: ShoeType[] = ['sneakers', 'formal', 'sandals', 'boots', 'sports
 export function ProductEditorPage() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { products, setProducts, isLoading, refreshAdminData } = useAdminMockStore();
+  const { products, setProducts, isLoading, refreshAdminData } = useAdminDataStore();
   const toast = useToast();
   const existing = products.find((item) => item.id === id);
   const [name, setName] = useState(existing?.name ?? '');
   const [brand, setBrand] = useState(existing?.brand ?? '');
   const [description, setDescription] = useState(existing?.description ?? '');
+  const [modelUrl, setModelUrl] = useState(existing?.modelUrl ?? '');
   const [audience, setAudience] = useState<Audience>(existing?.audience ?? 'men');
   const [type, setType] = useState<ShoeType>(existing?.type ?? 'sneakers');
   const [price, setPrice] = useState(existing ? String(existing.price / 100) : '');
   const [salePrice, setSalePrice] = useState(existing?.salePrice ? String(existing.salePrice / 100) : '');
-  const [image, setImage] = useState(existing?.images[0] ?? '');
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [sku, setSku] = useState(existing?.variants[0]?.sku ?? '');
   const [size, setSize] = useState(existing ? String(existing.variants[0]?.size ?? '') : '');
@@ -35,11 +35,11 @@ export function ProductEditorPage() {
     setName(existing.name);
     setBrand(existing.brand);
     setDescription(existing.description);
+    setModelUrl(existing.modelUrl ?? '');
     setAudience(existing.audience);
     setType(existing.type);
     setPrice(String(existing.price / 100));
     setSalePrice(existing.salePrice ? String(existing.salePrice / 100) : '');
-    setImage(existing.images[0] ?? '');
     setImageFile(null);
     setSku(existing.variants[0]?.sku ?? '');
     setSize(String(existing.variants[0]?.size ?? ''));
@@ -51,7 +51,7 @@ export function ProductEditorPage() {
     event.preventDefault();
     const priceKobo = Math.round(Number(price) * 100);
     const salePriceKobo = salePrice === '' ? undefined : Math.round(Number(salePrice) * 100);
-    if (!name.trim() || !description.trim() || !brand.trim() || !sku.trim() || !color.trim() || (!image.trim() && !imageFile) || !Number.isInteger(priceKobo) || priceKobo <= 0) {
+    if (!name.trim() || !description.trim() || !brand.trim() || !sku.trim() || !color.trim() || (!existing?.images.length && !imageFile) || !Number.isInteger(priceKobo) || priceKobo <= 0) {
       setError('Complete all required fields and enter a valid price.');
       return;
     }
@@ -76,22 +76,23 @@ export function ProductEditorPage() {
       stock: Number(stock),
     };
     try {
-      let imageUrl = image.trim();
+      let images = existing?.images ?? [];
       if (imageFile) {
         const formData = new FormData();
         formData.append('image', imageFile);
         const { data: uploaded } = await api.post<{ url: string }>('/admin/uploads/image', formData);
-        imageUrl = uploaded.url;
+        images = [uploaded.url, ...images.slice(1)];
       }
       const input = {
         name: name.trim(),
         description: description.trim(),
+        ...(modelUrl.trim() ? { modelUrl: modelUrl.trim() } : existing ? { modelUrl: null } : {}),
         brand: brand.trim(),
         audience,
         type,
         price: priceKobo,
         ...(salePriceKobo === undefined ? {} : { salePrice: salePriceKobo }),
-        images: [imageUrl],
+        images,
         variants: existing
           ? existing.variants.length
             ? existing.variants.map((variant, index) => index === 0 ? firstVariant : variant)
@@ -122,23 +123,53 @@ export function ProductEditorPage() {
   return (
     <Section title={existing ? 'Edit product' : 'Add product'}>
       <form className="admin-form" onSubmit={handleSubmit}>
-        <label>Product name<input required value={name} onChange={(event) => setName(event.target.value)} /></label>
-        <label>Brand<input required value={brand} onChange={(event) => setBrand(event.target.value)} /></label>
-        <label>Description<textarea value={description} onChange={(event) => setDescription(event.target.value)} rows={3} /></label>
-        <label>Audience<select value={audience} onChange={(event) => setAudience(event.target.value as Audience)}>{audiences.map((value) => <option key={value}>{value}</option>)}</select></label>
-        <label>Shoe type<select value={type} onChange={(event) => setType(event.target.value as ShoeType)}>{shoeTypes.map((value) => <option key={value}>{value}</option>)}</select></label>
-        <label>Price (₦)<input type="number" min="1" step="0.01" required value={price} onChange={(event) => setPrice(event.target.value)} /></label>
-        <label>Sale price (₦)<input type="number" min="0.01" step="0.01" value={salePrice} onChange={(event) => setSalePrice(event.target.value)} /></label>
-        <label>Image URL<input type="url" value={image} onChange={(event) => setImage(event.target.value)} /></label>
-        <label>Or upload image<input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => setImageFile(event.target.files?.[0] ?? null)} /></label>
-        <label>SKU<input required value={sku} onChange={(event) => setSku(event.target.value)} /></label>
-        <label>EU size<input type="number" min="1" required value={size} onChange={(event) => setSize(event.target.value)} /></label>
-        <label>Color<input required value={color} onChange={(event) => setColor(event.target.value)} /></label>
-        <label>Stock<input type="number" min="0" step="1" required value={stock} onChange={(event) => setStock(event.target.value)} /></label>
+        <div className="admin-form-intro">
+          <span className="admin-form-step">PRODUCT CATALOGUE</span>
+          <h2>{existing ? 'Keep your product details current' : 'Bring a new pair to your store'}</h2>
+          <p>Add clear product details, pricing, imagery, and the first size variant.</p>
+        </div>
+        <fieldset className="admin-form-section">
+          <legend><span>01</span> Product details</legend>
+          <div className="admin-form-section__grid">
+            <label>Product name<input required value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. Classic leather trainer" /></label>
+            <label>Brand<input required value={brand} onChange={(event) => setBrand(event.target.value)} placeholder="e.g. Northline" /></label>
+            <label className="is-wide">Description<textarea value={description} onChange={(event) => setDescription(event.target.value)} rows={3} placeholder="Describe the materials, fit, and standout details." /></label>
+            <label className="is-wide">3D model URL <span className="admin-field-suffix">Optional · .glb</span><input type="url" value={modelUrl} onChange={(event) => setModelUrl(event.target.value)} placeholder="https://example.com/shoe.glb" /></label>
+            <label>Audience<select value={audience} onChange={(event) => setAudience(event.target.value as Audience)}>{audiences.map((value) => <option key={value}>{value}</option>)}</select></label>
+            <label>Shoe type<select value={type} onChange={(event) => setType(event.target.value as ShoeType)}>{shoeTypes.map((value) => <option key={value}>{value}</option>)}</select></label>
+          </div>
+        </fieldset>
+        <fieldset className="admin-form-section">
+          <legend><span>02</span> Pricing</legend>
+          <div className="admin-form-section__grid">
+            <label>Regular price <span className="admin-field-suffix">NGN</span><input type="number" min="1" step="0.01" required value={price} onChange={(event) => setPrice(event.target.value)} placeholder="0.00" /></label>
+            <label>Sale price <span className="admin-field-suffix">Optional · NGN</span><input type="number" min="0.01" step="0.01" value={salePrice} onChange={(event) => setSalePrice(event.target.value)} placeholder="Leave blank if not on sale" /></label>
+          </div>
+        </fieldset>
+        <fieldset className="admin-form-section">
+          <legend><span>03</span> Product image</legend>
+          <p className="admin-form-section__hint">Upload a clear, well-lit JPG, PNG, or WebP image to this server. Maximum size: 5 MB.</p>
+          <div className="admin-form-section__grid">
+            <label className="is-wide">Image file<input type="file" accept="image/jpeg,image/png,image/webp" required={!existing?.images.length} onChange={(event) => setImageFile(event.target.files?.[0] ?? null)} /></label>
+          </div>
+        </fieldset>
+        <fieldset className="admin-form-section">
+          <legend><span>04</span> First size variant</legend>
+          <p className="admin-form-section__hint">You can add or adjust stock variants from Inventory after saving.</p>
+          <div className="admin-form-section__grid">
+            <label>SKU<input required value={sku} onChange={(event) => setSku(event.target.value)} placeholder="e.g. NL-TR-42-BLK" /></label>
+            <label>EU size<input type="number" min="1" required value={size} onChange={(event) => setSize(event.target.value)} placeholder="42" /></label>
+            <label>Color<input required value={color} onChange={(event) => setColor(event.target.value)} placeholder="Black" /></label>
+            <label>Opening stock<input type="number" min="0" step="1" required value={stock} onChange={(event) => setStock(event.target.value)} placeholder="0" /></label>
+          </div>
+        </fieldset>
         {error && <p className="admin-error" role="alert">{error}</p>}
-        <div className="admin-actions">
-          <button className="button" type="submit">Save product</button>
-          <Link className="button ghost" to="/admin/products">Cancel</Link>
+        <div className="admin-form-footer">
+          <span>Review the details before publishing this product.</span>
+          <div className="admin-actions">
+            <Link className="button ghost" to="/admin/products">Cancel</Link>
+            <button className="button" type="submit">{existing ? 'Save product changes' : 'Create product'}</button>
+          </div>
         </div>
       </form>
     </Section>

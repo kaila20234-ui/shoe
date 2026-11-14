@@ -1,4 +1,3 @@
-import { v2 as cloudinary } from 'cloudinary';
 import { Order } from '../../models/index.js';
 import ApiError from '../../utils/ApiError.js';
 import { logAudit } from '../../utils/audit.js';
@@ -47,20 +46,9 @@ export async function lowStock(req, res) {
 }
 
 export async function uploadImage(req, res) {
-  cloudinary.config({
-    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-    api_key: process.env.CLOUDINARY_API_KEY,
-    api_secret: process.env.CLOUDINARY_API_SECRET,
-  });
-  const result = await new Promise((resolve, reject) => {
-    const stream = cloudinary.uploader.upload_stream(
-      { resource_type: 'image', allowed_formats: ['jpg', 'png', 'webp'] },
-      (error, uploaded) => error ? reject(error) : resolve(uploaded),
-    );
-    stream.end(req.file.buffer);
-  });
-  await audited(req, 'image.upload', 'image', result.public_id);
-  return ok(res, { url: result.secure_url });
+  const url = `/uploads/products/${req.file.filename}`;
+  await audited(req, 'image.upload', 'image', req.file.filename);
+  return ok(res, { url });
 }
 
 export async function listOrders(req, res) {

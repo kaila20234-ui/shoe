@@ -75,6 +75,8 @@ export const customerApi = {
     data(api.post<Order>(`/orders/${encodeURIComponent(id)}/cancel`)),
   verifyPayment: (reference: string) =>
     data(api.get<Order>(`/payments/verify/${encodeURIComponent(reference)}`)),
+  verifyGuestPayment: (reference: string, token: string) =>
+    data(api.post<Order>(`/payments/guest-verify/${encodeURIComponent(reference)}`, { token })),
   createReturn: (body: {
     orderId: string;
     items: { sku: string; quantity: number }[];
@@ -84,6 +86,11 @@ export const customerApi = {
   profile: () => data(api.get<User>('/auth/me')),
   updateProfile: (body: { name?: string; phone?: string }) =>
     data(api.patch<User>('/auth/me', body)),
+  uploadAvatar: (file: File) => {
+    const body = new FormData();
+    body.append('image', file);
+    return data(api.post<User>('/auth/me/avatar', body));
+  },
   changePassword: (body: { currentPassword: string; newPassword: string }) =>
     data(api.patch<Record<string, never>>('/auth/change-password', body)),
   addresses: () => data(api.get<Address[]>('/users/me/addresses')),

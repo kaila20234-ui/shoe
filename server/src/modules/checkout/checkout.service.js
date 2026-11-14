@@ -1,8 +1,8 @@
-import { randomInt } from 'node:crypto';
+import { createHash, randomBytes, randomInt } from 'node:crypto';
 import { Cart, DeliveryZone, Discount, Order, Product, Transaction, User } from '../../models/index.js';
 import ApiError from '../../utils/ApiError.js';
 import { sendMail } from '../../utils/mailer.js';
-import { reserveDiscountUse, getApplicableDiscount } from '../discounts/discounts.service.js';
+import { reserveDiscountUse, getApplicableDiscount, releaseDiscountUseForOrder } from '../discounts/discounts.service.js';
 import { initializePayment } from '../payments/paystack.client.js';
 
 async function makeOrderNumber() {
@@ -34,18 +34,34 @@ async function rollbackStock(items) {
 }
 
 export async function createCheckout(userId, input) {
-  const cart = await Cart.findOne({ userId });
-  if (!cart?.items.length) throw new ApiError(400, 'VALIDATION_ERROR', 'Cart is empty');
-  const shippingAddress = await resolveAddress(userId, input);
+  const cart = userId ? await Cart.findOne({ userId }) : null;
+  const cartItems = userId ? cart?.items : input.items;
+  if (!cartItems?.length) throw new ApiError(400, 'VALIDATION_ERROR', 'Cart is empty');
+  const shippingAddress = userId ? await resolveAddress(userId, input) : input.shippingAddress;
+  if (!shippingAddress) throw new ApiError(400, 'VALIDATION_ERROR', 'Shipping address is required');
   const zone = await DeliveryZone.findOne({ _id: input.deliveryZoneId, isActive: true });
-  if (!zone || !zone.states.includes(shippingAddress.state)) {
+  const addressState = shippingAddress.state.trim().toLowerCase();
+  if (!zone || !zone.states.some((state) => state.trim().toLowerCase() === addressState)) {
     throw new ApiError(400, 'VALIDATION_ERROR', 'Delivery zone is not available for this address');
   }
-  const user = await User.findById(userId);
-  if (!user) throw new ApiError(404, 'NOT_FOUND', 'User not found');
+  const user = userId ? await User.findById(userId) : null;
+  if (userId && !user) throw new ApiError(404, 'NOT_FOUND', 'User not found');
+  const customerName = user?.name ?? input.guestDetails?.name;
+  const customerEmail = user?.email ?? input.guestDetails?.email;
+  if (!customerName || !customerEmail) {
+    throw new ApiError(400, 'VALIDATION_ERROR', 'Guest name and email are required');
+  }
   const items = [];
-  for (const entry of cart.items) {
-    const product = await Product.findOne({ _id: entry.productId, isActive: true, 'variants.sku': entry.sku });
+  const productIds = cartItems.map(({ productId }) => productId);
+  const skus = cartItems.map(({ sku }) => sku);
+  const products = await Product.find({
+    _id: { $in: productIds },
+    isActive: true,
+    'variants.sku': { $in: skus },
+  });
+  const productsById = new Map(products.map((product) => [String(product.id), product]));
+  for (const entry of cartItems) {
+    const product = productsById.get(String(entry.productId));
     const variant = product?.variants.find(({ sku }) => sku === entry.sku);
     if (!product || !variant || variant.stock < entry.quantity) {
       throw new ApiError(409, 'OUT_OF_STOCK', `Insufficient stock for SKU ${entry.sku}`);
@@ -69,8 +85,11 @@ export async function createCheckout(userId, input) {
   const total = subtotal - discountAmount + zone.fee;
   const orderNumber = await makeOrderNumber();
   const transactionReference = input.paymentMethod === 'pay_on_delivery' ? `POD-${orderNumber}` : orderNumber;
+  const guestAccessToken = !userId && input.paymentMethod === 'paystack'
+    ? randomBytes(32).toString('hex')
+    : undefined;
   const reservedItems = [];
-  const originalCartItems = cart.items.map(({ productId, sku, quantity }) => ({ productId, sku, quantity }));
+  const originalCartItems = cart?.items.map(({ productId, sku, quantity }) => ({ productId, sku, quantity }));
   let reservedDiscountId;
   let order;
   let cartCleared = false;
@@ -93,9 +112,9 @@ export async function createCheckout(userId, input) {
     }
     order = await Order.create({
       orderNumber,
-      customerId: String(user.id),
-      customerName: user.name,
-      customerEmail: user.email,
+      ...(user ? { customerId: String(user.id) } : {}),
+      customerName,
+      customerEmail,
       items,
       subtotal,
       ...(input.discountCode ? { discountCode: input.discountCode } : {}),
@@ -108,20 +127,26 @@ export async function createCheckout(userId, input) {
       paymentStatus: 'unpaid',
       status: 'pending_payment',
       statusHistory: [{ status: 'pending_payment', at: new Date().toISOString() }],
+      ...(guestAccessToken ? {
+        guestAccessTokenHash: createHash('sha256').update(guestAccessToken).digest('hex'),
+        guestAccessTokenExpiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      } : {}),
     });
     await Transaction.create({
       reference: transactionReference,
       orderId: String(order.id),
       orderNumber,
-      customerId: String(user.id),
-      customerName: user.name,
+      ...(user ? { customerId: String(user.id) } : {}),
+      customerName,
       amount: total,
       method: input.paymentMethod,
       status: 'pending',
     });
-    cart.items = [];
-    await cart.save();
-    cartCleared = true;
+    if (cart) {
+      cart.items = [];
+      await cart.save();
+      cartCleared = true;
+    }
   } catch (error) {
     const rollbackErrors = [];
     if (order) {
@@ -161,17 +186,44 @@ export async function createCheckout(userId, input) {
     }
     throw error;
   }
-  sendMail({
-    to: user.email,
-    subject: `Order ${orderNumber} received`,
-    html: `<p>We received your order ${orderNumber}.</p>`,
-  });
-  if (input.paymentMethod === 'pay_on_delivery') return { order };
+  if (input.paymentMethod === 'pay_on_delivery') {
+    sendMail({
+      to: customerEmail,
+      subject: `Order ${orderNumber} received`,
+      html: `<p>We received your order ${orderNumber}.</p>`,
+    });
+    return { order };
+  }
   try {
-    const payment = await initializePayment({ email: user.email, amount: total, reference: orderNumber });
-    return { order, paystack: { authorizationUrl: payment.authorization_url, reference: orderNumber } };
+    const payment = await initializePayment({ email: customerEmail, amount: total, reference: orderNumber });
+    sendMail({
+      to: customerEmail,
+      subject: `Order ${orderNumber} received`,
+      html: `<p>We received your order ${orderNumber}.</p>`,
+    });
+    return {
+      order,
+      ...(guestAccessToken ? { guestAccessToken } : {}),
+      paystack: { authorizationUrl: payment.authorization_url, reference: orderNumber },
+    };
   } catch (error) {
-    await failPendingPayment(orderNumber);
+    const rollbackErrors = [];
+    try {
+      await failPendingPayment(orderNumber);
+    } catch (rollbackError) {
+      rollbackErrors.push(rollbackError);
+    }
+    if (cartCleared) {
+      try {
+        cart.items = originalCartItems;
+        await cart.save();
+      } catch (rollbackError) {
+        rollbackErrors.push(rollbackError);
+      }
+    }
+    if (rollbackErrors.length) {
+      throw new AggregateError([error, ...rollbackErrors], 'Payment initialization failed and checkout compensation was incomplete');
+    }
     throw error;
   }
 }
@@ -186,6 +238,7 @@ export async function failPendingPayment(reference) {
     { new: true },
   );
   if (!order) return;
+  await releaseDiscountUseForOrder(order);
   await rollbackStock(order.items);
   await Transaction.updateOne({ reference }, { $set: { status: 'failed' } });
 }

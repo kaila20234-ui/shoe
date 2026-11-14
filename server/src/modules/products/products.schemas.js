@@ -15,7 +15,11 @@ const productFieldsSchema = z.object({
   type: z.enum(['sneakers', 'formal', 'sandals', 'boots', 'sports']),
   price: z.number().int().positive(),
   salePrice: z.number().int().positive().optional(),
-  images: z.array(z.string().url()).min(1),
+  modelUrl: z.string().url().nullable().optional(),
+  images: z.array(z.union([
+    z.string().url(),
+    z.string().regex(/^\/uploads\/products\/[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}\.(?:jpg|png|webp)$/i),
+  ])).min(1),
   variants: z.array(variantSchema).min(1),
   isActive: z.boolean().optional(),
 });

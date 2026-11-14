@@ -157,6 +157,7 @@ const statusTones: Record<OrderStatus | PaymentStatus | TransactionStatus, 'succ
   unpaid: 'warning',
   failed: 'danger',
   pending: 'warning',
+  needs_review: 'warning',
   success: 'success',
 };
 

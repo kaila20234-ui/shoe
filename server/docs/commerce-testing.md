@@ -1,6 +1,6 @@
 # Commerce API smoke test
 
-Run the server with MongoDB and JWT credentials configured, then seed the database with the project seed script. For protected requests, set `TOKEN` to a customer JWT; use an admin JWT for the admin status update.
+Run the server with a staging MongoDB database populated with real catalog, stock, and delivery-zone data. The project no longer provides sample-data seeding. For protected requests, set `TOKEN` to a customer JWT; use an admin JWT for the admin status update.
 
 The commerce routers are mounted under `/api`: products at `/products`, product reviews at `/products`, cart at `/cart`, wishlist at `/wishlist`, delivery zones at `/delivery-zones`, discounts at `/discounts`, checkout at `/checkout`, orders at `/orders`, payments at `/payments`, returns at `/returns`, admin operations at `/admin`, and owner operations at `/owner`. Mount the named `auditLogsRouter` export from `owner.routes.js` at `/api/audit-logs`, with the same owner/admin authorization guard as `/api/owner`.
 
@@ -47,3 +47,7 @@ curl.exe -s "$base/owner/transactions?page=1&limit=20" `
 `simulate-webhook.js` reads `MONGODB_URI`, `PAYSTACK_SECRET_KEY`, and `PORT` from the process environment. The order must exist and use Paystack. The script sends a correctly HMAC-SHA512-signed local `charge.success` event; it does not contact Paystack or move real money.
 
 For admin order transitions, send `PATCH /api/admin/orders/:id/status` with an admin bearer token and a JSON body such as `{"status":"shipped"}` followed by `{"status":"delivered"}`. The server rejects transitions that are not in the contract's state machine.
+
+The automated smoke test requires an isolated staging database containing an in-stock product and an active delivery zone, plus `E2E_API_URL`, `ADMIN_TOKEN`, and `OWNER_TOKEN` for that environment. It creates a new test customer, a test admin, and a Paystack test order; do not run it against production. The webhook simulation does not charge a payment method.
+
+Product and avatar uploads are stored under `server/uploads/` and served from `/uploads/`. Keep this directory on persistent storage and include it in backups when deploying; uploads are not stored in MongoDB or an external image service.

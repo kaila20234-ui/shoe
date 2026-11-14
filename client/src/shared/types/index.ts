@@ -24,7 +24,7 @@ export type OrderStatus =
 
 export type PaymentMethod = 'paystack' | 'pay_on_delivery';
 export type PaymentStatus = 'unpaid' | 'paid' | 'failed' | 'refunded';
-export type TransactionStatus = 'pending' | 'success' | 'failed' | 'refunded';
+export type TransactionStatus = 'pending' | 'success' | 'failed' | 'refunded' | 'needs_review';
 export type ReviewStatus = 'pending' | 'approved' | 'rejected';
 export type ReturnStatus = 'requested' | 'approved' | 'rejected' | 'refunded';
 export type DiscountType = 'percentage' | 'fixed';
@@ -73,6 +73,7 @@ export interface User {
   name: string;
   email: string;
   phone?: string;
+  avatarUrl?: string;
   role: Role;
   isActive: boolean;      // false = blocked, cannot log in
   addresses: Address[];
@@ -103,6 +104,7 @@ export interface Product {
   price: number;          // kobo
   salePrice?: number;     // kobo, must be < price when present
   images: string[];       // URLs (Cloudinary), first is the cover
+  modelUrl?: string;
   variants: ProductVariant[];
   isActive: boolean;      // false = hidden from storefront (soft delete)
   ratingAverage: number;  // 0-5, one decimal
@@ -197,7 +199,7 @@ export interface StatusHistoryEntry {
 export interface Order {
   id: string;
   orderNumber: string;    // "SS-YYYYMMDD-XXXXX"
-  customerId: string;
+  customerId?: string;
   customerName: string;
   customerEmail: string;
   items: OrderItem[];
@@ -218,12 +220,15 @@ export interface Order {
 export interface CheckoutRequest {
   addressId?: string;             // saved address, OR:
   shippingAddress?: ShippingAddress;
+  guestDetails?: { name: string; email: string };
+  items?: { productId: string; sku: string; quantity: number }[];
   deliveryZoneId: string;
   paymentMethod: PaymentMethod;
   discountCode?: string;
 }
 export interface CheckoutResponse {
   order: Order;
+  guestAccessToken?: string;
   paystack?: { authorizationUrl: string; reference: string }; // only for paymentMethod 'paystack'
 }
 export interface Transaction {
@@ -231,7 +236,7 @@ export interface Transaction {
   reference: string;      // Paystack reference, or "POD-<orderNumber>" for pay on delivery
   orderId: string;
   orderNumber: string;
-  customerId: string;
+  customerId?: string;
   customerName: string;
   amount: number;         // kobo
   method: PaymentMethod;

@@ -1,6 +1,6 @@
 import { Router } from 'express';
-import multer from 'multer';
 import ApiError from '../../utils/ApiError.js';
+import { createImageUpload } from '../../utils/imageUpload.js';
 import { validate } from '../../middleware/validate.js';
 import asyncHandler from '../../utils/asyncHandler.js';
 import * as controller from './admin.controller.js';
@@ -10,17 +10,7 @@ import {
   stockSchema, lowStockQuerySchema, reviewQuerySchema, returnQuerySchema,
 } from './admin.schemas.js';
 
-const imageUpload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 5 * 1024 * 1024, files: 1 },
-  fileFilter(_req, file, callback) {
-    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.mimetype)) {
-      callback(new ApiError(400, 'VALIDATION_ERROR', 'Image must be jpg, png, or webp'));
-      return;
-    }
-    callback(null, true);
-  },
-});
+const imageUpload = createImageUpload('products');
 
 const router = Router();
 router.get('/dashboard/summary', asyncHandler(controller.dashboard));

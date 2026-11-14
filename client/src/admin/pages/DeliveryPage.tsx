@@ -2,12 +2,12 @@ import { useState, type FormEvent } from 'react';
 import type { DeliveryZone } from '../../shared/types';
 import { api } from '../../shared/api/client';
 import { useToast } from '../../shared/ui';
-import { useAdminMockStore } from '../components/AdminMockStore';
+import { useAdminDataStore } from '../components/AdminDataStore';
 import { formatPrice } from '../components/format';
 import { EmptyState, Section } from '../components/ui';
 
 export function DeliveryPage() {
-  const { deliveryZones, setDeliveryZones, refreshAdminData } = useAdminMockStore();
+  const { deliveryZones, setDeliveryZones, refreshAdminData } = useAdminDataStore();
   const toast = useToast();
   const [editing, setEditing] = useState<DeliveryZone | null>(null);
   const [name, setName] = useState('');
@@ -75,14 +75,32 @@ export function DeliveryPage() {
   return (
     <Section title="Delivery zones">
       <details className="admin-disclosure">
-        <summary>{editing ? 'Edit delivery zone' : 'Add delivery zone'}</summary>
+        <summary><span className="admin-disclosure__mark">{editing ? '✎' : '+'}</span><span><strong>{editing ? 'Edit delivery zone' : 'Add a delivery zone'}</strong><small>Define where you deliver and what customers can expect.</small></span></summary>
         <form className="admin-form" onSubmit={saveZone}>
-          <label>Zone name<input required value={name} onChange={(event) => setName(event.target.value)} /></label>
-          <label>States (comma separated)<input required placeholder="Lagos, Ogun" value={states} onChange={(event) => setStates(event.target.value)} /></label>
-          <label>Delivery fee (₦)<input type="number" min="0" step="0.01" required value={fee} onChange={(event) => setFee(event.target.value)} /></label>
-          <label>Estimated days<input required placeholder="2-3 days" value={estimatedDays} onChange={(event) => setEstimatedDays(event.target.value)} /></label>
+          <div className="admin-form-intro">
+            <span className="admin-form-step">FULFILMENT</span>
+            <h2>Set clear delivery expectations</h2>
+            <p>Customers will see this coverage, delivery fee, and estimated timeframe at checkout.</p>
+          </div>
+          <fieldset className="admin-form-section">
+            <legend><span>01</span> Coverage area</legend>
+            <div className="admin-form-section__grid">
+              <label>Zone name<input required value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. Greater Lagos" /></label>
+              <label>States covered <span className="admin-field-suffix">Separate multiple states with commas</span><input required placeholder="Lagos, Ogun" value={states} onChange={(event) => setStates(event.target.value)} /></label>
+            </div>
+          </fieldset>
+          <fieldset className="admin-form-section">
+            <legend><span>02</span> Delivery details</legend>
+            <div className="admin-form-section__grid">
+              <label>Delivery fee <span className="admin-field-suffix">NGN</span><input type="number" min="0" step="0.01" required value={fee} onChange={(event) => setFee(event.target.value)} placeholder="0.00" /></label>
+              <label>Estimated delivery time<input required placeholder="2–3 business days" value={estimatedDays} onChange={(event) => setEstimatedDays(event.target.value)} /></label>
+            </div>
+          </fieldset>
           {error && <p className="admin-error" role="alert">{error}</p>}
-          <div className="admin-actions"><button className="button" type="submit">{editing ? 'Save changes' : 'Add zone'}</button>{editing && <button className="button ghost" type="button" onClick={resetForm}>Cancel edit</button>}</div>
+          <div className="admin-form-footer">
+            <span>Delivery zones can be activated or paused from the list.</span>
+            <div className="admin-actions">{editing && <button className="button ghost" type="button" onClick={resetForm}>Cancel</button>}<button className="button" type="submit">{editing ? 'Save zone changes' : 'Add delivery zone'}</button></div>
+          </div>
         </form>
       </details>
       {deliveryZones.length ? (

@@ -25,3 +25,9 @@ export const customerListSchema = z.object({
 
 export const customerStatusSchema = z.object({ isActive: z.boolean() });
 export const customerIdSchema = z.object({ id: z.string().min(1) });
+
+export const adminCreateSchema = z.object({
+  name: z.string().trim().min(1).max(120),
+  email: z.string().trim().email().transform((value) => value.toLowerCase()),
+  password: z.string().min(8),
+});

@@ -1,8 +1,7 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
-import { Order, Transaction } from '../../models/index.js';
 import ApiError from '../../utils/ApiError.js';
-import { sendMail } from '../../utils/mailer.js';
 import { failPendingPayment } from '../checkout/checkout.service.js';
+import { confirmSuccessfulPayment } from './payments.service.js';
 
 function isValidSignature(rawBody, signature) {
   const secret = process.env.PAYSTACK_SECRET_KEY;
@@ -33,37 +32,15 @@ export async function paystackWebhook(req, res) {
     throw new ApiError(400, 'VALIDATION_ERROR', 'Invalid Paystack webhook data');
   }
   if (event.event === 'charge.success') {
-    const referencedOrder = await Order.findOne({ orderNumber: data.reference, paymentMethod: 'paystack' });
-    if (!referencedOrder) throw new ApiError(404, 'NOT_FOUND', 'Paystack order not found');
-    if (data.currency !== 'NGN' || data.amount !== referencedOrder.total) {
-      throw new ApiError(400, 'PAYMENT_FAILED', 'Paystack amount or currency does not match the order');
-    }
-    if (referencedOrder.paymentStatus === 'paid' && referencedOrder.status === 'paid') {
-      await Transaction.updateOne({ reference: data.reference }, { $set: { status: 'success' } });
-      return res.status(200).json({});
-    }
-    const order = await Order.findOneAndUpdate({
-      orderNumber: data.reference,
-      status: 'pending_payment',
-      paymentStatus: 'unpaid',
-      paymentMethod: 'paystack',
-      total: referencedOrder.total,
-    }, {
-      $set: { status: 'paid', paymentStatus: 'paid' },
-      $push: { statusHistory: { status: 'paid', note: 'Paystack payment confirmed', at: new Date().toISOString() } },
-    }, { new: true });
-    if (order) {
-      await Transaction.updateOne({ reference: data.reference }, { $set: { status: 'success' } });
-      sendMail({
-        to: order.customerEmail,
-        subject: `Payment received for ${order.orderNumber}`,
-        html: `<p>Payment for order ${order.orderNumber} was successful.</p>`,
+    try {
+      await confirmSuccessfulPayment(data);
+    } catch (error) {
+      console.error('Paystack charge.success could not be reconciled.', {
+        reference: data.reference,
+        event: event.event,
+        reason: error instanceof Error ? error.message : String(error),
       });
-    } else {
-      const current = await Order.findOne({ orderNumber: data.reference });
-      if (current?.paymentStatus === 'paid') {
-        await Transaction.updateOne({ reference: data.reference }, { $set: { status: 'success' } });
-      }
+      throw error;
     }
   } else if (event.event === 'charge.failed' || event.event === 'charge.abandoned') {
     await failPendingPayment(data.reference);

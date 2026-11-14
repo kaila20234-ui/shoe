@@ -1,9 +1,12 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Component, lazy, Suspense, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../shared/auth/AuthContext';
+import { ApiClientError } from '../shared/api/client';
 import { formatDate, formatDateTime, formatNaira } from '../shared/lib/format';
-import { Button, EmptyState, Input, Select, Spinner, StatusBadge } from '../shared/ui';
+import { resolveAssetUrl } from '../shared/lib/assetUrl';
+import { Button, EmptyState, Input, Modal, Select, Spinner, StatusBadge } from '../shared/ui';
+import { addGuestCartItem, cartQueryKey, clearGuestCart, loadCart, readGuestCartEntries, setGuestCartItem } from './guestCart';
 import type {
   Address,
   Cart,
@@ -12,6 +15,40 @@ import type {
   ShippingAddress,
 } from '../shared/types';
 import { customerApi, type ProductQuery } from './api';
+
+const LazyProductViewer3D = lazy(() => import('./ProductViewer3D'));
+
+function isProductViewerAvailable() {
+  if (typeof window === 'undefined' || typeof document === 'undefined') return false;
+  if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return false;
+  const connection = (navigator as Navigator & { connection?: { saveData?: boolean } }).connection;
+  if (connection?.saveData) return false;
+  try {
+    const canvas = document.createElement('canvas');
+    return Boolean(canvas.getContext('webgl') || canvas.getContext('webgl2'));
+  } catch {
+    return false;
+  }
+}
+
+class ProductViewerErrorBoundary extends Component<{
+  children: ReactNode;
+  onError: () => void;
+}, { hasError: boolean }> {
+  state = { hasError: false };
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  componentDidCatch() {
+    this.props.onError();
+  }
+
+  render() {
+    return this.state.hasError ? null : this.props.children;
+  }
+}
 
 function PageError({ message }: { message: string }) {
   return <p role="alert" className="storefront-error">{message}</p>;
@@ -29,6 +66,10 @@ function StoreEmpty({ title, description }: { title: string; description: string
   return <div className="storefront-empty"><EmptyState title={title} /><p>{description}</p></div>;
 }
 
+function ProfileBackLink() {
+  return <Link className="customer-back-link" to="/account/profile"><span aria-hidden="true">←</span> Back to profile</Link>;
+}
+
 function ProductCard({ product, onRemove }: { product: Product; onRemove?: () => void }) {
   const available = product.variants.some((variant) => variant.stock > 0);
   const onSale = product.salePrice !== undefined;
@@ -36,7 +77,7 @@ function ProductCard({ product, onRemove }: { product: Product; onRemove?: () =>
     <article className="shoe-card">
       <Link to={`/product/${product.slug}`} className="shoe-card__link">
         <div className="shoe-card__image">
-          <img src={product.images[0]} alt={product.name} />
+          <img src={resolveAssetUrl(product.images[0])} alt={product.name} />
           {onSale && <span className="shoe-card__sale">Special price</span>}
           {!available && <span className="shoe-card__stock">Sold out</span>}
         </div>
@@ -155,8 +196,8 @@ export function ShopPage() {
           <label>Brand<Select aria-label="Brand" value={query.brand ?? ''} onChange={(event) => update('brand', event.target.value)}><option value="">All brands</option>{(meta?.brands ?? []).map((item) => <option key={item} value={item}>{item}</option>)}</Select></label>
           <label>Size<Select aria-label="Size" value={query.size?.toString() ?? ''} onChange={(event) => update('size', event.target.value)}><option value="">All sizes</option>{(meta?.sizes ?? []).map((size) => <option key={size} value={size}>{size}</option>)}</Select></label>
           <label>Color<Select aria-label="Color" value={query.color ?? ''} onChange={(event) => update('color', event.target.value)}><option value="">All colors</option>{(meta?.colors ?? []).map((color) => <option key={color} value={color}>{color}</option>)}</Select></label>
-          <label className="block text-sm">Minimum price (₦)<Input type="number" min={meta?.priceRange.min ? meta.priceRange.min / 100 : 0} max={meta?.priceRange.max ? meta.priceRange.max / 100 : undefined} step="0.01" value={query.minPrice === undefined ? '' : query.minPrice / 100} onChange={(event) => update('minPrice', event.target.value ? String(Math.round(Number(event.target.value) * 100)) : '')} /></label>
-          <label className="block text-sm">Maximum price (₦)<Input type="number" min={meta?.priceRange.min ? meta.priceRange.min / 100 : 0} max={meta?.priceRange.max ? meta.priceRange.max / 100 : undefined} step="0.01" value={query.maxPrice === undefined ? '' : query.maxPrice / 100} onChange={(event) => update('maxPrice', event.target.value ? String(Math.round(Number(event.target.value) * 100)) : '')} /></label>
+          <label className="block text-sm">Minimum price (₦)<Input type="number" min={meta?.priceRange?.min ? meta.priceRange.min / 100 : 0} max={meta?.priceRange?.max ? meta.priceRange.max / 100 : undefined} step="0.01" value={query.minPrice === undefined ? '' : query.minPrice / 100} onChange={(event) => update('minPrice', event.target.value ? String(Math.round(Number(event.target.value) * 100)) : '')} /></label>
+          <label className="block text-sm">Maximum price (₦)<Input type="number" min={meta?.priceRange?.min ? meta.priceRange.min / 100 : 0} max={meta?.priceRange?.max ? meta.priceRange.max / 100 : undefined} step="0.01" value={query.maxPrice === undefined ? '' : query.maxPrice / 100} onChange={(event) => update('maxPrice', event.target.value ? String(Math.round(Number(event.target.value) * 100)) : '')} /></label>
           <Button type="button" onClick={() => { setSearch(new URLSearchParams()); setFiltersOpen(false); }}>Clear all filters</Button>
         </aside>
         <section>
@@ -176,26 +217,37 @@ export function ShopPage() {
 
 export function ProductPage() {
   const { slug = '' } = useParams();
-  const { user } = useAuth();
+  const { user } = useAuth('customer');
   const navigate = useNavigate();
   const location = useLocation();
   const client = useQueryClient();
   const [sku, setSku] = useState('');
   const [imageIndex, setImageIndex] = useState(0);
+  const [imagePreviewOpen, setImagePreviewOpen] = useState(false);
+  const [failedImageUrl, setFailedImageUrl] = useState('');
+  const [viewerMode, setViewerMode] = useState<'photos' | '3d'>('photos');
+  const [viewerNotice, setViewerNotice] = useState('');
   const [reviewPage, setReviewPage] = useState(1);
   const [rating, setRating] = useState('5');
   const [comment, setComment] = useState('');
   const product = useQuery({ queryKey: ['product', slug], queryFn: () => customerApi.product(slug) });
   const wishlist = useQuery({ queryKey: ['wishlist'], queryFn: customerApi.wishlist, enabled: user?.role === 'customer' });
   const reviews = useQuery({ queryKey: ['reviews', product.data?.id, reviewPage], queryFn: () => customerApi.reviews(product.data!.id, reviewPage), enabled: !!product.data });
+  useEffect(() => {
+    setViewerMode('photos');
+    setViewerNotice('');
+  }, [slug]);
   const selected = product.data?.variants.find((variant) => variant.sku === sku) ?? product.data?.variants.find((variant) => variant.stock > 0);
   const selectedVariantSku = selected?.sku ?? '';
+  const cartKey = cartQueryKey(user?.role === 'customer' ? user.id : undefined);
   const cartMutation = useMutation({
-    mutationFn: () => {
-      const current = client.getQueryData<Cart>(['cart'])?.items.find((item) => item.sku === selectedVariantSku)?.quantity ?? 0;
+    mutationFn: async () => {
+      if (user?.role !== 'customer') return addGuestCartItem(product.data!.id, selectedVariantSku);
+      const currentCart = client.getQueryData<Cart>(cartKey) ?? await customerApi.cart();
+      const current = currentCart.items.find((item) => item.sku === selectedVariantSku)?.quantity ?? 0;
       return customerApi.setCartItem(product.data!.id, selectedVariantSku, current + 1);
     },
-    onSuccess: (cart) => client.setQueryData(['cart'], cart),
+    onSuccess: (cart) => client.setQueryData(cartKey, cart),
   });
   const wishlistMutation = useMutation({
     mutationFn: () => customerApi.toggleWishlist(product.data!.id, wishlist.data?.includes(product.data!.id) ?? false),
@@ -205,14 +257,51 @@ export function ProductPage() {
     mutationFn: () => customerApi.createReview(product.data!.id, { rating: Number(rating), comment }),
     onSuccess: () => { setComment(''); void client.invalidateQueries({ queryKey: ['reviews', product.data?.id] }); },
   });
-  if (product.isLoading) return <Loading />;
-  if (product.isError || !product.data) return <PageError message="This product could not be found." />;
+  const backToShop = <Link className="product-detail__back" to="/shop">← Back to shop</Link>;
+  function chooseViewer(mode: 'photos' | '3d') {
+    if (mode === '3d' && !isProductViewerAvailable()) {
+      setViewerMode('photos');
+      setViewerNotice('3D preview is unavailable with this device or display preference. Showing photos instead.');
+      return;
+    }
+    setViewerMode(mode);
+    setViewerNotice('');
+  }
+  function fallBackToPhotos() {
+    setViewerMode('photos');
+    setViewerNotice('The 3D model could not be displayed. Showing photos instead.');
+  }
+  if (product.isLoading) return <div className="storefront-page">{backToShop}<Loading /></div>;
+  if (product.isError || !product.data) return <div className="storefront-page">{backToShop}<PageError message="This product could not be found." /></div>;
   const saved = wishlist.data?.includes(product.data.id) ?? false;
+  const selectedImageUrl = resolveAssetUrl(product.data.images[imageIndex] ?? product.data.images[0]);
+  const selectedImageUnavailable = failedImageUrl === selectedImageUrl;
   return (
     <div className="storefront-page product-detail grid">
+      {backToShop}
       <div className="product-detail__gallery">
-        <div className="product-detail__main-image"><img src={product.data.images[imageIndex] ?? product.data.images[0]} alt={product.data.name} /></div>
-        <div className="product-detail__thumbs">{product.data.images.map((image, index) => <button key={image} type="button" aria-current={imageIndex === index} aria-label={`View image ${index + 1}`} onClick={() => setImageIndex(index)}><img src={image} alt="" /></button>)}</div>
+        {product.data.modelUrl && <div className="product-detail__view-toggle" role="group" aria-label="Product view">
+          <button type="button" aria-pressed={viewerMode === 'photos'} onClick={() => chooseViewer('photos')}>Photos</button>
+          <button type="button" aria-pressed={viewerMode === '3d'} onClick={() => chooseViewer('3d')}>3D</button>
+        </div>}
+        {product.data.modelUrl && viewerMode === '3d' ? (
+          <ProductViewerErrorBoundary onError={fallBackToPhotos}>
+            <Suspense fallback={<div className="product-detail__viewer-loading" role="status">Loading 3D model…</div>}>
+              <LazyProductViewer3D
+                modelUrl={product.data.modelUrl}
+                productName={product.data.name}
+                onError={fallBackToPhotos}
+              />
+            </Suspense>
+          </ProductViewerErrorBoundary>
+        ) : <div className="product-detail__main-image">{selectedImageUnavailable
+          ? <p className="product-detail__image-unavailable" role="status">Product image unavailable</p>
+          : <button type="button" className="product-detail__preview-button" aria-label={`Preview ${product.data.name} image`} onClick={() => setImagePreviewOpen(true)}>
+            <img src={selectedImageUrl} alt={product.data.name} onError={() => setFailedImageUrl(selectedImageUrl)} />
+          </button>}
+        </div>}
+        {viewerNotice && <p className="product-detail__viewer-notice" role="status">{viewerNotice}</p>}
+        <div className="product-detail__thumbs">{product.data.images.map((image, index) => <button key={image} type="button" aria-current={imageIndex === index} aria-label={`View image ${index + 1}`} onClick={() => { setImageIndex(index); chooseViewer('photos'); }}><img src={resolveAssetUrl(image)} alt="" /></button>)}</div>
       </div>
       <section className="product-detail__info">
         <p className="product-detail__brand">{product.data.brand} · {product.data.audience}</p>
@@ -226,7 +315,7 @@ export function ProductPage() {
           </Select>
         </label>
         <div className="product-detail__actions">
-          <Button disabled={!selected || selected.stock <= 0 || cartMutation.isPending} onClick={() => user?.role === 'customer' ? cartMutation.mutate() : navigate('/login', { state: { from: `${location.pathname}${location.search}` } })}>{cartMutation.isPending ? 'Adding…' : 'Add to cart'}</Button>
+          <Button disabled={!selected || selected.stock <= 0 || cartMutation.isPending} onClick={() => cartMutation.mutate()}>{cartMutation.isPending ? 'Adding…' : 'Add to cart'}</Button>
           <Button disabled={wishlistMutation.isPending} onClick={() => user?.role === 'customer' ? wishlistMutation.mutate() : navigate('/login', { state: { from: `${location.pathname}${location.search}` } })}>{saved ? 'Remove from wishlist' : '♡ Save to wishlist'}</Button>
         </div>
         {cartMutation.isError && <PageError message="Could not add this size to your cart. Check available stock and try again." />}
@@ -247,6 +336,17 @@ export function ProductPage() {
           )}
         </section>
       </section>
+      <Modal title={`${product.data.name} image preview`} open={imagePreviewOpen && !selectedImageUnavailable} onClose={() => setImagePreviewOpen(false)}>
+        <img
+          className="product-detail__image-preview"
+          src={selectedImageUrl}
+          alt={product.data.name}
+          onError={() => {
+            setFailedImageUrl(selectedImageUrl);
+            setImagePreviewOpen(false);
+          }}
+        />
+      </Modal>
     </div>
   );
 }
@@ -256,27 +356,31 @@ function ReviewRow({ review }: { review: Review }) {
 }
 
 export function CartPage() {
+  const { user } = useAuth('customer');
   const client = useQueryClient();
   const [discountCode, setDiscountCode] = useState('');
   const [discountAmount, setDiscountAmount] = useState(0);
-  const cart = useQuery({ queryKey: ['cart'], queryFn: customerApi.cart });
+  const cartKey = cartQueryKey(user?.id);
+  const cart = useQuery({ queryKey: cartKey, queryFn: () => loadCart(user?.id) });
   const itemMutation = useMutation({
-    mutationFn: ({ productId, sku, quantity }: { productId: string; sku: string; quantity: number }) => customerApi.setCartItem(productId, sku, quantity),
+    mutationFn: ({ productId, sku, quantity }: { productId: string; sku: string; quantity: number }) => user
+      ? customerApi.setCartItem(productId, sku, quantity)
+      : setGuestCartItem(productId, sku, quantity),
     onMutate: async ({ sku, quantity }) => {
-      await client.cancelQueries({ queryKey: ['cart'] });
-      const previous = client.getQueryData<Cart>(['cart']);
+      await client.cancelQueries({ queryKey: cartKey });
+      const previous = client.getQueryData<Cart>(cartKey);
       if (previous) {
         const items = quantity === 0
           ? previous.items.filter((item) => item.sku !== sku)
           : previous.items.map((item) => item.sku === sku ? { ...item, quantity } : item);
-        client.setQueryData<Cart>(['cart'], { items, subtotal: items.reduce((total, item) => total + item.unitPrice * item.quantity, 0) });
+        client.setQueryData<Cart>(cartKey, { items, subtotal: items.reduce((total, item) => total + item.unitPrice * item.quantity, 0) });
       }
       return { previous };
     },
     onError: (_error, _variables, context) => {
-      if (context?.previous) client.setQueryData(['cart'], context.previous);
+      if (context?.previous) client.setQueryData(cartKey, context.previous);
     },
-    onSuccess: (data) => client.setQueryData(['cart'], data),
+    onSuccess: (data) => client.setQueryData(cartKey, data),
   });
   const discountMutation = useMutation({
     mutationFn: () => customerApi.validateDiscount(discountCode, cart.data?.subtotal ?? 0),
@@ -289,9 +393,9 @@ export function CartPage() {
   return <div className="storefront-page cart-page"><span className="section-eyebrow">Almost yours</span><PageTitle>Your bag</PageTitle>
     {!contents.items.length ? <><StoreEmpty title="Your bag is waiting" description="Find a pair that feels like you, and it will be right here." /><Link className="mt-4 inline-block underline" to="/shop">Browse the collection</Link></> : <>
       <div className="cart-items">{contents.items.map((item) => <article key={item.sku} className="cart-item">
-        <img src={item.image} alt="" className="h-24 w-24 rounded-lg object-cover" />
+        <img src={resolveAssetUrl(item.image)} alt="" className="h-24 w-24 rounded-lg object-cover" />
         <div className="cart-item__details"><div><Link to={`/product/${item.productId}`} className="cart-item__name">{item.name}</Link><p className="text-sm text-gray-600">Size {item.size} · {item.color}</p><p className="mt-1 font-medium">{formatNaira(item.unitPrice)}</p>{item.quantity > item.stockAvailable && <p className="text-sm text-red-700">Only {item.stockAvailable} in stock.</p>}</div>
-          <div className="flex items-center gap-2"><Button disabled={itemMutation.isPending || item.quantity <= 1} aria-label={`Decrease ${item.name} quantity`} onClick={() => itemMutation.mutate({ productId: item.productId, sku: item.sku, quantity: item.quantity - 1 })}>−</Button><span aria-live="polite" className="min-w-6 text-center">{item.quantity}</span><Button disabled={itemMutation.isPending || item.quantity >= item.stockAvailable} aria-label={`Increase ${item.name} quantity`} onClick={() => itemMutation.mutate({ productId: item.productId, sku: item.sku, quantity: item.quantity + 1 })}>+</Button><Button disabled={itemMutation.isPending} onClick={() => itemMutation.mutate({ productId: item.productId, sku: item.sku, quantity: 0 })}>Remove</Button></div>
+          <div className="flex items-center gap-2"><Button disabled={itemMutation.isPending || item.quantity <= 1} aria-label={`Decrease ${item.name} quantity`} onClick={() => itemMutation.mutate({ productId: item.productId, sku: item.sku, quantity: item.quantity - 1 })}>−</Button><span aria-live="polite" className="min-w-6 text-center">{item.quantity}</span><Button disabled={itemMutation.isPending || item.quantity >= Math.min(item.stockAvailable, 100)} aria-label={`Increase ${item.name} quantity`} onClick={() => itemMutation.mutate({ productId: item.productId, sku: item.sku, quantity: item.quantity + 1 })}>+</Button><Button disabled={itemMutation.isPending} onClick={() => itemMutation.mutate({ productId: item.productId, sku: item.sku, quantity: 0 })}>Remove</Button></div>
         </div>
       </article>)}</div>
       {itemMutation.isError && <PageError message="We couldn't update that quantity. Please check the available stock." />}
@@ -305,7 +409,7 @@ export function CartPage() {
 }
 
 export function CheckoutPage() {
-  const { user } = useAuth();
+  const { user, isLoading: authLoading } = useAuth('customer');
   const navigate = useNavigate();
   const location = useLocation();
   const client = useQueryClient();
@@ -313,11 +417,18 @@ export function CheckoutPage() {
   const [addressId, setAddressId] = useState('');
   const [newAddress, setNewAddress] = useState(false);
   const [shipping, setShipping] = useState<ShippingAddress>({ recipient: user?.name ?? '', phone: user?.phone ?? '', street: '', city: '', state: '', landmark: '' });
+  const [guestDetails, setGuestDetails] = useState({ name: '', email: '' });
+  const [placedOrderNumber, setPlacedOrderNumber] = useState('');
   const [zoneId, setZoneId] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<'paystack' | 'pay_on_delivery'>('paystack');
-  const cart = useQuery({ queryKey: ['cart'], queryFn: customerApi.cart });
-  const addresses = useQuery({ queryKey: ['addresses'], queryFn: customerApi.addresses });
+  const cartKey = cartQueryKey(user?.id);
+  const cart = useQuery({ queryKey: cartKey, queryFn: () => loadCart(user?.id) });
+  const addresses = useQuery({ queryKey: ['addresses'], queryFn: customerApi.addresses, enabled: !!user, initialData: user ? undefined : [] });
   const zones = useQuery({ queryKey: ['delivery-zones'], queryFn: customerApi.deliveryZones });
+  const savedAddress = addresses.data?.find((address) => address.id === addressId);
+  const usingNewAddress = newAddress || !addresses.data?.length;
+  const deliveryState = (usingNewAddress ? shipping.state : savedAddress?.state ?? '').trim();
+  const activeZones = useMemo(() => zones.data?.filter((zone) => zone.isActive) ?? [], [zones.data]);
   const discount = useQuery({
     queryKey: ['checkout-discount', passedDiscount, cart.data?.subtotal],
     queryFn: () => customerApi.validateDiscount(passedDiscount!, cart.data!.subtotal),
@@ -326,33 +437,77 @@ export function CheckoutPage() {
   });
   useEffect(() => {
     if (!addressId && addresses.data?.length) {
-      setAddressId(addresses.data.find((address) => address.isDefault)?.id ?? addresses.data[0].id);
+      const defaultAddress = addresses.data.find((address) => address.isDefault) ?? addresses.data[0];
+      setAddressId(defaultAddress.id);
+      if (!defaultAddress.state?.trim()) setNewAddress(true);
     }
   }, [addressId, addresses.data]);
+  useEffect(() => {
+    if (zoneId && !activeZones.some((zone) => zone.id === zoneId)) setZoneId('');
+  }, [activeZones, zoneId]);
   const mutation = useMutation({
-    mutationFn: () => customerApi.checkout({ ...(newAddress || !addressId ? { shippingAddress: shipping } : { addressId }), deliveryZoneId: zoneId, paymentMethod, ...(passedDiscount && discount.data ? { discountCode: passedDiscount } : {}) }),
+    mutationFn: () => customerApi.checkout({
+      ...(user ? (usingNewAddress ? { shippingAddress: shipping } : { addressId }) : {
+        guestDetails,
+        items: readGuestCartEntries(),
+        shippingAddress: shipping,
+      }),
+      deliveryZoneId: zoneId,
+      paymentMethod,
+      ...(passedDiscount && discount.data ? { discountCode: passedDiscount } : {}),
+    }),
     onSuccess: (result) => {
-      client.setQueryData(['cart'], { items: [], subtotal: 0 });
-      if (result.paystack) window.location.assign(result.paystack.authorizationUrl);
-      else navigate(`/orders/${result.order.id}`, { replace: true });
+      client.setQueryData(cartKey, { items: [], subtotal: 0 });
+      if (!user) clearGuestCart();
+      if (result.paystack) {
+        if (!user && result.guestAccessToken) {
+          window.sessionStorage.setItem(`guest-order:${result.paystack.reference}`, result.guestAccessToken);
+        }
+        window.location.assign(result.paystack.authorizationUrl);
+      } else if (user) navigate(`/orders/${result.order.id}`, { replace: true });
+      else setPlacedOrderNumber(result.order.orderNumber);
+    },
+    onError: () => {
+      void client.invalidateQueries({ queryKey: cartKey });
     },
   });
-  if (cart.isLoading || addresses.isLoading || zones.isLoading) return <Loading />;
+  if (authLoading || cart.isLoading || addresses.isLoading || zones.isLoading) return <Loading />;
   if (cart.isError || addresses.isError || zones.isError) return <PageError message="Checkout details could not be loaded. Please try again." />;
-  const selectedZone = zones.data?.find((zone) => zone.id === zoneId);
+  const selectedZone = activeZones.find((zone) => zone.id === zoneId);
+  const zoneMatchesAddress = Boolean(deliveryState && selectedZone?.states.some(
+    (state) => state.trim().toLowerCase() === deliveryState.toLowerCase(),
+  ));
   const subtotal = cart.data?.subtotal ?? 0;
+  if (placedOrderNumber) {
+    return <div className="storefront-page payment-result"><span className="payment-result__icon">✓</span><span className="section-eyebrow">Order received</span><PageTitle>Thank you for your order</PageTitle><p>Order <strong>{placedOrderNumber}</strong> is being prepared. We sent your confirmation to <strong>{guestDetails.email}</strong>.</p><Link to="/shop">Continue shopping</Link></div>;
+  }
   return <div className="storefront-page checkout-page"><span className="section-eyebrow">A few final details</span><PageTitle>Make it yours</PageTitle>
     {!cart.data?.items.length ? <><StoreEmpty title="Your bag is empty" description="Add a pair before checking out." /><Link to="/shop" className="mt-4 inline-block underline">Browse the collection</Link></> : <form onSubmit={(event) => { event.preventDefault(); mutation.mutate(); }} className="checkout-grid grid">
       <div className="space-y-6">
+        {!user && <section className="checkout-section"><h2 className="mb-3 text-xl font-bold">Your contact details</h2><div className="grid gap-3 sm:grid-cols-2"><label>Name<Input autoComplete="name" required value={guestDetails.name} onChange={(event) => setGuestDetails((value) => ({ ...value, name: event.target.value }))} /></label><label>Email<Input type="email" autoComplete="email" required value={guestDetails.email} onChange={(event) => setGuestDetails((value) => ({ ...value, email: event.target.value }))} /></label></div></section>}
         <section className="checkout-section"><h2 className="mb-3 text-xl font-bold">Delivery address</h2>
-          {addresses.data?.length ? <div className="space-y-2">{addresses.data.map((address) => <label key={address.id} className="flex gap-3 rounded border p-3"><input type="radio" name="address" checked={!newAddress && (addressId || addresses.data?.[0]?.id) === address.id} onChange={() => { setAddressId(address.id); setNewAddress(false); }} /><span>{address.label}: {address.recipient}, {address.street}, {address.city}, {address.state}</span></label>)}</div> : null}
-          <label className="mt-3 flex items-center gap-2"><input type="checkbox" checked={newAddress || !addresses.data?.length} onChange={(event) => setNewAddress(event.target.checked)} />Use a new address</label>
-          {(newAddress || !addresses.data?.length) && <div className="mt-3 grid gap-3 sm:grid-cols-2">{(['recipient', 'phone', 'street', 'city', 'state', 'landmark'] as const).map((field) => <label key={field} className={field === 'street' ? 'sm:col-span-2' : ''}>{field === 'recipient' ? 'Recipient' : field.charAt(0).toUpperCase() + field.slice(1)}<Input required={field !== 'landmark'} value={shipping[field] ?? ''} onChange={(event) => setShipping((value) => ({ ...value, [field]: event.target.value }))} /></label>)}</div>}
+          {addresses.data?.length ? <div className="space-y-2">{addresses.data.map((address) => <label key={address.id} className="flex gap-3 rounded border p-3"><input type="radio" name="address" checked={!usingNewAddress && addressId === address.id} onChange={() => { setAddressId(address.id); setNewAddress(!address.state?.trim()); }} /><span>{address.label}: {address.recipient}, {address.street}, {address.city}, {address.state || 'State required'}</span></label>)}</div> : null}
+          {!!addresses.data?.length && <label className="mt-3 flex items-center gap-2"><input type="checkbox" checked={newAddress} onChange={(event) => setNewAddress(event.target.checked)} />Use a new address</label>}
+          {usingNewAddress && <div className="mt-3 grid gap-3 sm:grid-cols-2">{(['recipient', 'phone', 'street', 'city', 'state', 'landmark'] as const).map((field) => <label key={field} className={field === 'street' ? 'sm:col-span-2' : ''}>{field === 'recipient' ? 'Recipient' : field.charAt(0).toUpperCase() + field.slice(1)}<Input required={field !== 'landmark'} value={shipping[field] ?? ''} onChange={(event) => setShipping((value) => ({ ...value, [field]: event.target.value }))} /></label>)}</div>}
         </section>
-        <section className="checkout-section"><h2 className="mb-3 text-xl font-bold">Delivery option</h2><Select required value={zoneId} onChange={(event) => setZoneId(event.target.value)}><option value="">Choose your delivery zone</option>{zones.data?.filter((zone) => zone.isActive).map((zone) => <option key={zone.id} value={zone.id}>{zone.name} · {formatNaira(zone.fee)} · {zone.estimatedDays}</option>)}</Select><p className="mt-2 text-sm text-gray-500">Delivery estimates are shown for each zone.</p></section>
+        <section className="checkout-section"><h2 className="mb-3 text-xl font-bold">Delivery option</h2><Select required value={zoneId} onChange={(event) => setZoneId(event.target.value)}><option value="">Choose your delivery zone</option>{activeZones.map((zone) => <option key={zone.id} value={zone.id}>{zone.name} · {formatNaira(zone.fee)} · {zone.estimatedDays}</option>)}</Select><p className="mt-2 text-sm text-gray-500">{!deliveryState ? 'Enter a state to confirm this delivery option.' : !selectedZone ? 'Choose a delivery zone for your address.' : zoneMatchesAddress ? 'Delivery option available for this state.' : `This zone does not cover ${deliveryState}. Choose another zone or address.`}</p></section>
         <section className="checkout-section"><h2 className="mb-3 text-xl font-bold">Payment method</h2><div className="payment-options"><label className={paymentMethod === 'paystack' ? 'is-selected' : ''}><input type="radio" name="payment" checked={paymentMethod === 'paystack'} onChange={() => setPaymentMethod('paystack')} /><span><strong>Pay online</strong><small>Secure checkout with Paystack</small></span></label><label className={paymentMethod === 'pay_on_delivery' ? 'is-selected' : ''}><input type="radio" name="payment" checked={paymentMethod === 'pay_on_delivery'} onChange={() => setPaymentMethod('pay_on_delivery')} /><span><strong>Pay on delivery</strong><small>Pay when your order arrives</small></span></label></div></section>
       </div>
-      <aside className="checkout-summary customer-panel"><p className="section-eyebrow">Order summary</p><h2>Your selection</h2><div className="checkout-summary__items">{cart.data?.items.map((item) => <p key={item.sku}><span>{item.name} <small>× {item.quantity}</small></span><strong>{formatNaira(item.unitPrice * item.quantity)}</strong></p>)}</div><div className="checkout-summary__totals"><p><span>Subtotal</span><span>{formatNaira(subtotal)}</span></p>{passedDiscount && discount.data && <p className="checkout-discount"><span>Discount · {passedDiscount}</span><span>−{formatNaira(discount.data.discountAmount)}</span></p>}{passedDiscount && discount.isError && <p className="text-sm text-red-700">The discount code could not be applied.</p>}<p><span>Delivery</span><span>{selectedZone ? formatNaira(selectedZone.fee) : 'Choose a zone'}</span></p><p className="checkout-total"><strong>Total</strong><strong>{formatNaira(subtotal - (discount.data?.discountAmount ?? 0) + (selectedZone?.fee ?? 0))}</strong></p></div><Button type="submit" disabled={mutation.isPending || !zoneId || discount.isLoading} className="storefront-submit">{mutation.isPending ? 'Placing your order…' : 'Place order securely'}</Button>{mutation.isError && <PageError message="We couldn't place your order. Please check your cart and try again." />}<p className="checkout-reassurance">Your payment details are protected. Your shoes are just around the corner.</p></aside>
+      <aside className="checkout-summary customer-panel">
+        <p className="section-eyebrow">Order summary</p>
+        <h2>Your selection</h2>
+        <div className="checkout-summary__items">{cart.data?.items.map((item) => <p key={item.sku}><span>{item.name} <small>× {item.quantity}</small></span><strong>{formatNaira(item.unitPrice * item.quantity)}</strong></p>)}</div>
+        <div className="checkout-summary__totals">
+          <p><span>Subtotal</span><span>{formatNaira(subtotal)}</span></p>
+          {passedDiscount && discount.data && <p className="checkout-discount"><span>Discount · {passedDiscount}</span><span>−{formatNaira(discount.data.discountAmount)}</span></p>}
+          {passedDiscount && discount.isError && <p className="text-sm text-red-700">The discount code could not be applied.</p>}
+          <p><span>Delivery</span><span>{selectedZone ? formatNaira(selectedZone.fee) : 'Choose a zone'}</span></p>
+          <p className="checkout-total"><strong>Total</strong><strong>{formatNaira(subtotal - (discount.data?.discountAmount ?? 0) + (selectedZone?.fee ?? 0))}</strong></p>
+        </div>
+        <Button type="submit" disabled={mutation.isPending || !selectedZone || !zoneMatchesAddress || discount.isLoading} className="storefront-submit">{mutation.isPending ? 'Placing your order…' : 'Place order securely'}</Button>
+        {mutation.isError && <PageError message={mutation.error instanceof Error ? mutation.error.message : 'We could not place your order. Please try again.'} />}
+        <p className="checkout-reassurance">Your payment details are protected. Your shoes are just around the corner.</p>
+      </aside>
     </form>}
   </div>;
 }
@@ -360,19 +515,38 @@ export function CheckoutPage() {
 export function VerifyPaymentPage() {
   const [params] = useSearchParams();
   const reference = params.get('reference') ?? '';
-  const result = useQuery({ queryKey: ['payment-verify', reference], queryFn: () => customerApi.verifyPayment(reference), enabled: !!reference, retry: false });
+  const [guestVerification, setGuestVerification] = useState(() => ({
+    reference,
+    token: reference ? window.sessionStorage.getItem(`guest-order:${reference}`) : null,
+  }));
+  useEffect(() => {
+    setGuestVerification({
+      reference,
+      token: reference ? window.sessionStorage.getItem(`guest-order:${reference}`) : null,
+    });
+  }, [reference]);
+  const guestToken = guestVerification.reference === reference ? guestVerification.token : null;
+  const result = useQuery({
+    queryKey: ['payment-verify', reference, guestToken ? 'guest' : 'customer'],
+    queryFn: async () => {
+      if (!guestToken) return customerApi.verifyPayment(reference);
+      return customerApi.verifyGuestPayment(reference, guestToken);
+    },
+    enabled: !!reference,
+    retry: false,
+  });
   if (!reference) return <div className="storefront-page"><PageError message="Payment reference is missing." /></div>;
   if (result.isLoading) return <div className="py-16 text-center"><Loading /><p>Confirming your payment…</p></div>;
-  if (result.isError || !result.data) return <div className="storefront-page payment-result"><PageError message="We could not confirm this payment yet. Check your orders before trying again." /><Link to="/orders">View my orders</Link></div>;
-  return <div className="storefront-page payment-result"><span className="payment-result__icon">✓</span><span className="section-eyebrow">All settled</span><h1>Payment confirmed</h1><p>Order <strong>{result.data.orderNumber}</strong> is being prepared.</p><Link to={`/orders/${result.data.id}`}>View order details <span aria-hidden="true">→</span></Link></div>;
+  if (result.isError || !result.data) return <div className="storefront-page payment-result"><PageError message="We could not confirm this payment yet. If your payment went through, check your email for an update." />{guestToken ? <Link to="/shop">Continue shopping</Link> : <Link to="/orders">View my orders</Link>}</div>;
+  return <div className="storefront-page payment-result"><span className="payment-result__icon">✓</span><span className="section-eyebrow">All settled</span><h1>Payment confirmed</h1><p>Order <strong>{result.data.orderNumber}</strong> is being prepared.</p>{guestToken ? <Link to="/shop">Continue shopping <span aria-hidden="true">→</span></Link> : <Link to={`/orders/${result.data.id}`}>View order details <span aria-hidden="true">→</span></Link>}</div>;
 }
 
 export function OrdersPage() {
   const orders = useQuery({ queryKey: ['orders'], queryFn: () => customerApi.orders() });
   const returns = useQuery({ queryKey: ['returns'], queryFn: customerApi.returns });
-  if (orders.isLoading) return <Loading />;
-  if (orders.isError || returns.isError) return <PageError message="Could not load your orders." />;
-  return <div className="storefront-page orders-page"><span className="section-eyebrow">The journey so far</span><PageTitle>Your orders</PageTitle>
+  if (orders.isLoading) return <div className="storefront-page orders-page"><ProfileBackLink /><Loading /></div>;
+  if (orders.isError || returns.isError) return <div className="storefront-page orders-page"><ProfileBackLink /><PageError message="Could not load your orders." /></div>;
+  return <div className="storefront-page orders-page"><ProfileBackLink /><span className="section-eyebrow">The journey so far</span><PageTitle>Your orders</PageTitle>
     {!orders.data?.data.length ? <><StoreEmpty title="No orders just yet" description="When you find your next favorite pair, your order details will live here." /><Link to="/shop" className="mt-4 inline-block underline">Explore the collection</Link></> : <div className="order-list">{orders.data.data.map((order) => <Link key={order.id} to={`/orders/${order.id}`} className="order-row"><span><strong>{order.orderNumber}</strong><small>Placed {formatDate(order.createdAt)}</small></span><span className="order-row__end"><StatusBadge status={order.status} />{formatNaira(order.total)}<span aria-hidden="true">→</span></span></Link>)}</div>}
     <section className="mt-8"><h2 className="mb-3 text-xl font-bold">My returns</h2>{returns.isLoading ? <Loading /> : returns.data?.length ? <div className="space-y-2">{returns.data.map((request) => <div key={request.id} className="flex flex-wrap justify-between gap-3 rounded border p-3"><span>{request.orderNumber} · {request.reason}</span><span className="capitalize">{request.status}</span></div>)}</div> : <p className="text-gray-600">No return requests yet.</p>}</section>
   </div>;
@@ -387,6 +561,13 @@ export function OrderDetailPage() {
   const [returnSku, setReturnSku] = useState('');
   const [returnQuantity, setReturnQuantity] = useState(1);
   const cancel = useMutation({ mutationFn: () => customerApi.cancelOrder(id), onSuccess: (order) => { client.setQueryData(['order', id], order); void client.invalidateQueries({ queryKey: ['orders'] }); } });
+  const paymentVerification = useMutation({
+    mutationFn: customerApi.verifyPayment,
+    onSuccess: (order) => {
+      client.setQueryData(['order', id], order);
+      void client.invalidateQueries({ queryKey: ['orders'] });
+    },
+  });
   const returnMutation = useMutation({
     mutationFn: () => customerApi.createReturn({ orderId: id, items: [{ sku: returnSku, quantity: returnQuantity }], reason }),
     onSuccess: () => { setReason(''); void client.invalidateQueries({ queryKey: ['returns'] }); },
@@ -395,11 +576,14 @@ export function OrderDetailPage() {
   if (orderQuery.isError || !orderQuery.data) return <PageError message="Order could not be found." />;
   const order = orderQuery.data;
   const canCancel = order.status === 'pending_payment' || order.status === 'paid';
+  const canVerifyPayment = order.paymentMethod === 'paystack' && order.status === 'pending_payment';
   return <div className="storefront-page order-detail-page"><span className="section-eyebrow">Order details</span><PageTitle>{order.orderNumber}</PageTitle>
-    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-4"><div><StatusBadge status={order.status} /><p className="mt-2 text-sm text-gray-600">Placed {formatDateTime(order.createdAt)}</p></div>{canCancel && <Button disabled={cancel.isPending} onClick={() => { if (window.confirm('Cancel this order?')) cancel.mutate(); }}>Cancel order</Button>}</div>
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-4"><div><StatusBadge status={order.status} /><p className="mt-2 text-sm text-gray-600">Placed {formatDateTime(order.createdAt)}</p></div><div className="flex flex-wrap gap-2">{canVerifyPayment && <Button disabled={paymentVerification.isPending} onClick={() => paymentVerification.mutate(order.orderNumber)}>{paymentVerification.isPending ? 'Checking payment…' : 'Check payment status'}</Button>}{canCancel && <Button disabled={cancel.isPending} onClick={() => { if (window.confirm('Cancel this order?')) cancel.mutate(); }}>Cancel order</Button>}</div></div>
     {cancel.isError && <PageError message="This order could not be cancelled." />}
+    {paymentVerification.isError && <PageError message="Payment is not confirmed yet. Please try again shortly." />}
+    {paymentVerification.isSuccess && <p className="mt-3" role="status">Payment confirmed. Your order is now paid.</p>}
     <section className="my-6"><h2 className="mb-3 text-xl font-bold">Order progress</h2><ol className="space-y-3 border-l-2 border-gray-200 pl-5">{order.statusHistory.map((entry, index) => <li key={`${entry.at}-${index}`}><p className="font-medium capitalize">{entry.status.replace(/_/g, ' ')}</p><time className="text-sm text-gray-600">{formatDateTime(entry.at)}</time>{entry.note && <p>{entry.note}</p>}</li>)}</ol></section>
-    <div className="grid gap-6 md:grid-cols-2"><section><h2 className="mb-3 text-xl font-bold">Items</h2>{order.items.map((item) => <div key={item.sku} className="flex gap-3 border-b py-3"><img src={item.image} alt="" className="h-16 w-16 rounded object-cover" /><div className="flex-1"><p className="font-medium">{item.name}</p><p className="text-sm text-gray-600">Size {item.size} · {item.color} · Qty {item.quantity}</p></div><span>{formatNaira(item.unitPrice * item.quantity)}</span></div>)}</section>
+    <div className="grid gap-6 md:grid-cols-2"><section><h2 className="mb-3 text-xl font-bold">Items</h2>{order.items.map((item) => <div key={item.sku} className="flex gap-3 border-b py-3"><img src={resolveAssetUrl(item.image)} alt="" className="h-16 w-16 rounded object-cover" /><div className="flex-1"><p className="font-medium">{item.name}</p><p className="text-sm text-gray-600">Size {item.size} · {item.color} · Qty {item.quantity}</p></div><span>{formatNaira(item.unitPrice * item.quantity)}</span></div>)}</section>
       <aside><h2 className="mb-3 text-xl font-bold">Summary & delivery</h2><p>{order.shippingAddress.recipient}<br />{order.shippingAddress.street}, {order.shippingAddress.city}, {order.shippingAddress.state}<br />{order.shippingAddress.phone}</p><div className="mt-4 space-y-2 border-t pt-3"><p className="flex justify-between"><span>Subtotal</span><span>{formatNaira(order.subtotal)}</span></p><p className="flex justify-between"><span>Discount</span><span>−{formatNaira(order.discountAmount)}</span></p><p className="flex justify-between"><span>Delivery</span><span>{formatNaira(order.deliveryFee)}</span></p><p className="flex justify-between font-bold"><span>Total</span><span>{formatNaira(order.total)}</span></p><p className="text-sm">Payment: {order.paymentMethod.replace(/_/g, ' ')} · {order.paymentStatus}</p></div></aside>
     </div>
     {order.status === 'delivered' && <section className="customer-panel mt-8"><h2 className="text-xl font-bold">Request a return</h2>{returns.data?.some((request) => request.orderId === order.id) ? <p className="mt-2">A return request has already been submitted for this order.</p> : <form className="mt-3 space-y-3" onSubmit={(event) => { event.preventDefault(); returnMutation.mutate(); }}><Select required value={returnSku} onChange={(event) => setReturnSku(event.target.value)}><option value="">Choose an item</option>{order.items.map((item) => <option key={item.sku} value={item.sku}>{item.name} · {item.sku}</option>)}</Select><Input required min="1" max={order.items.find((item) => item.sku === returnSku)?.quantity ?? 1} type="number" aria-label="Return quantity" value={returnQuantity} onChange={(event) => setReturnQuantity(Number(event.target.value))} /><textarea required minLength={5} aria-label="Reason for return" placeholder="Tell us why you'd like to return this item" rows={3} value={reason} onChange={(event) => setReason(event.target.value)} /><Button type="submit" disabled={returnMutation.isPending || !returnSku}>Submit return request</Button>{returnMutation.isError && <PageError message="Could not submit your return request." />}{returnMutation.isSuccess && <p role="status">Return request submitted.</p>}</form>}</section>}
@@ -407,7 +591,7 @@ export function OrderDetailPage() {
 }
 
 export function WishlistPage() {
-  const { user } = useAuth();
+  const { user } = useAuth('customer');
   const client = useQueryClient();
   const ids = useQuery({ queryKey: ['wishlist'], queryFn: customerApi.wishlist });
   const products = useQuery({ queryKey: ['wishlist-products', ids.data], queryFn: () => Promise.all((ids.data ?? []).map((id) => customerApi.product(id))), enabled: !!ids.data?.length });
@@ -418,12 +602,12 @@ export function WishlistPage() {
       void client.invalidateQueries({ queryKey: ['wishlist-products'] });
     },
   });
-  if (ids.isLoading || (products.isLoading && !!ids.data?.length)) return <Loading />;
-  if (ids.isError || products.isError) return <PageError message="Could not load your wishlist." />;
-  return <div className="storefront-page wishlist-page"><span className="section-eyebrow">Saved for later</span><PageTitle>Your wishlist</PageTitle>{!ids.data?.length ? <><StoreEmpty title="Your wishlist is empty" description="Keep the pairs you love close by and come back when you're ready." /><Link to="/shop" className="mt-4 inline-block underline">Browse the collection</Link></> : <div className="shoe-grid">{(products.data ?? []).map((product) => <ProductCard key={product.id} product={product} onRemove={() => remove.mutate(product.id)} />)}</div>}{remove.isError && <PageError message="Could not update your wishlist." />}{!user && <p className="mt-3 text-sm text-gray-600">Sign in to keep your wishlist saved.</p>}</div>;
+  if (ids.isLoading || (products.isLoading && !!ids.data?.length)) return <div className="storefront-page wishlist-page"><ProfileBackLink /><Loading /></div>;
+  if (ids.isError || products.isError) return <div className="storefront-page wishlist-page"><ProfileBackLink /><PageError message="Could not load your wishlist." /></div>;
+  return <div className="storefront-page wishlist-page"><ProfileBackLink /><span className="section-eyebrow">Saved for later</span><PageTitle>Your wishlist</PageTitle>{!ids.data?.length ? <><StoreEmpty title="Your wishlist is empty" description="Keep the pairs you love close by and come back when you're ready." /><Link to="/shop" className="mt-4 inline-block underline">Browse the collection</Link></> : <div className="shoe-grid">{(products.data ?? []).map((product) => <ProductCard key={product.id} product={product} onRemove={() => remove.mutate(product.id)} />)}</div>}{remove.isError && <PageError message="Could not update your wishlist." />}{!user && <p className="mt-3 text-sm text-gray-600">Sign in to keep your wishlist saved.</p>}</div>;
 }
 
-export function AccountPage() {
+export function LegacyAccountPage() {
   const client = useQueryClient();
   const profile = useQuery({ queryKey: ['profile'], queryFn: customerApi.profile });
   const addresses = useQuery({ queryKey: ['addresses'], queryFn: customerApi.addresses });
@@ -454,11 +638,152 @@ export function AccountPage() {
   }, [profile.data]);
   if (profile.isLoading || addresses.isLoading) return <Loading />;
   if (profile.isError || addresses.isError || !profile.data) return <PageError message="Could not load your account." />;
-  return <div className="storefront-page account-page"><span className="section-eyebrow">A little about you</span><PageTitle>Your account</PageTitle>
-    <section className="customer-panel"><h2 className="text-xl font-bold">Personal details</h2><p className="mt-1 text-sm text-gray-600">{profile.data.email}</p><form className="mt-4 grid gap-3 sm:grid-cols-2" onSubmit={(event) => { event.preventDefault(); profileMutation.mutate(); }}><label>Name<Input required value={name} onChange={(event) => setName(event.target.value)} /></label><label>Phone<Input value={phone} onChange={(event) => setPhone(event.target.value)} /></label><Button type="submit" className="sm:col-span-2">Save profile</Button>{profileMutation.isError && <PageError message="Could not save your profile." />}</form></section>
-    <section className="customer-panel"><h2 className="text-xl font-bold">Change password</h2><form className="mt-4 grid gap-3 sm:grid-cols-2" onSubmit={(event) => { event.preventDefault(); passwordMutation.mutate(); }}><label>Current password<Input type="password" required value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} /></label><label>New password<Input type="password" minLength={8} required value={newPassword} onChange={(event) => setNewPassword(event.target.value)} /></label><Button type="submit">Update password</Button>{passwordMutation.isSuccess && <p role="status">Password updated.</p>}{passwordMutation.isError && <PageError message="Could not change your password." />}</form></section>
-    <section className="customer-panel"><h2 className="text-xl font-bold">Address book</h2><div className="mt-3 space-y-3">{addresses.data?.map((address) => <div key={address.id} className="customer-address-row"><div className="flex justify-between gap-3"><p><strong>{address.label}</strong>{address.isDefault && ' · Default'}<br />{address.recipient}, {address.street}, {address.city}, {address.state}<br />{address.phone}</p><div className="flex gap-2"><Button type="button" onClick={() => { setEditingAddressId(address.id); setEditingAddress({ label: address.label, recipient: address.recipient, phone: address.phone, street: address.street, city: address.city, state: address.state, landmark: address.landmark, isDefault: address.isDefault }); }}>Edit</Button><Button type="button" onClick={() => { if (window.confirm('Delete this address?')) deleteAddress.mutate(address.id); }}>Delete</Button></div></div>{editingAddressId === address.id && <form className="mt-3 grid gap-2 sm:grid-cols-2" onSubmit={(event) => { event.preventDefault(); updateAddress.mutate(); }}>{(['label', 'recipient', 'phone', 'street', 'city', 'state', 'landmark'] as const).map((field) => <label key={field}>{field.charAt(0).toUpperCase() + field.slice(1)}<Input required={field !== 'landmark'} value={editingAddress[field] ?? ''} onChange={(event) => setEditingAddress((value) => ({ ...value, [field]: event.target.value }))} /></label>)}<label className="flex items-center gap-2"><input type="checkbox" checked={editingAddress.isDefault ?? false} onChange={(event) => setEditingAddress((value) => ({ ...value, isDefault: event.target.checked }))} />Make default</label><div className="flex gap-2"><Button type="submit" disabled={updateAddress.isPending}>Save address</Button><Button type="button" onClick={() => setEditingAddressId('')}>Cancel</Button></div>{updateAddress.isError && <PageError message="Could not update this address." />}</form>}</div>)}</div><form className="mt-5 grid gap-3 sm:grid-cols-2" onSubmit={(event) => { event.preventDefault(); addressMutation.mutate(); }}><h3 className="sm:col-span-2 font-semibold">Add an address</h3>{(['label', 'recipient', 'phone', 'street', 'city', 'state', 'landmark'] as const).map((field) => <label key={field}>{field.charAt(0).toUpperCase() + field.slice(1)}<Input required={field !== 'landmark'} value={newAddress[field] ?? ''} onChange={(event) => setNewAddress((value) => ({ ...value, [field]: event.target.value }))} /></label>)}<label className="flex items-center gap-2"><input type="checkbox" checked={newAddress.isDefault} onChange={(event) => setNewAddress((value) => ({ ...value, isDefault: event.target.checked }))} />Make default</label><Button type="submit">Add address</Button>{addressMutation.isError && <PageError message="Could not add this address." />}</form></section>
-  </div>;
+  const firstName = profile.data.name.trim().split(/\s+/)[0] || 'there';
+  return (
+    <div className="storefront-page account-page">
+      <header className="account-heading">
+        <div>
+          <span className="section-eyebrow">Your space</span>
+          <h1>Account overview</h1>
+          <p>Manage your personal details, delivery addresses, and sign-in security.</p>
+        </div>
+        <Link className="account-heading__shop" to="/shop">Continue shopping <span aria-hidden="true">→</span></Link>
+      </header>
+
+      <section className="account-welcome" aria-label="Profile summary">
+        <div className="account-avatar" aria-hidden="true">{profile.data.name.trim().charAt(0).toUpperCase()}</div>
+        <div className="account-welcome__identity">
+          <span className="account-welcome__eyebrow">Welcome back</span>
+          <h2>{firstName}</h2>
+          <p>{profile.data.email}</p>
+        </div>
+        <div className="account-welcome__since">
+          <span>Member since</span>
+          <strong>{formatDate(profile.data.createdAt)}</strong>
+        </div>
+      </section>
+
+      <div className="account-layout">
+        <nav className="account-menu" aria-label="Account sections">
+          <span className="account-menu__title">Your account</span>
+          <a href="#personal-details" className="is-active">Personal details</a>
+          <a href="#address-book">Address book <span>{addresses.data?.length ?? 0}</span></a>
+          <a href="#account-security">Password & security</a>
+          <span className="account-menu__divider" />
+          <Link to="/orders">Your orders <span aria-hidden="true">↗</span></Link>
+          <Link to="/wishlist">Saved items <span aria-hidden="true">↗</span></Link>
+        </nav>
+
+        <div className="account-content">
+          <section className="customer-panel account-card" id="personal-details">
+            <div className="account-card__heading">
+              <div><span className="account-card__eyebrow">PROFILE</span><h2>Personal details</h2></div>
+              <p>Your contact information for orders and delivery.</p>
+            </div>
+            <form className="account-form" onSubmit={(event) => { event.preventDefault(); profileMutation.mutate(); }}>
+              <label>
+                Full name
+                <Input required autoComplete="name" value={name} onChange={(event) => setName(event.target.value)} />
+              </label>
+              <label>
+                Email address
+                <Input type="email" autoComplete="email" value={profile.data.email} disabled />
+                <small className="account-field-hint">Email address cannot be changed here.</small>
+              </label>
+              <label>
+                Phone number
+                <Input type="tel" autoComplete="tel" value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="Add a phone number" />
+              </label>
+              <div className="account-form__actions">
+                {profileMutation.isSuccess && <p role="status" className="account-success">Your profile has been updated.</p>}
+                {profileMutation.isError && <PageError message="Could not save your profile." />}
+                <Button type="submit" disabled={profileMutation.isPending}>{profileMutation.isPending ? 'Saving…' : 'Save changes'}</Button>
+              </div>
+            </form>
+          </section>
+
+          <section className="customer-panel account-card" id="address-book">
+            <div className="account-card__heading">
+              <div><span className="account-card__eyebrow">DELIVERY</span><h2>Address book</h2></div>
+              <p>Keep your delivery details ready for a quicker checkout.</p>
+            </div>
+            {addresses.data?.length ? (
+              <div className="account-addresses">
+                {addresses.data.map((address) => (
+                  <article key={address.id} className="account-address">
+                    <div className="account-address__top">
+                      <div><h3>{address.label || 'Delivery address'}</h3>{address.isDefault && <span className="account-default-badge">Default</span>}</div>
+                      <div className="account-address__actions">
+                        <Button type="button" variant="secondary" onClick={() => { setEditingAddressId(address.id); setEditingAddress({ label: address.label, recipient: address.recipient, phone: address.phone, street: address.street, city: address.city, state: address.state, landmark: address.landmark, isDefault: address.isDefault }); }}>Edit</Button>
+                        <Button type="button" variant="secondary" disabled={deleteAddress.isPending} onClick={() => { if (window.confirm('Delete this address?')) deleteAddress.mutate(address.id); }}>Remove</Button>
+                      </div>
+                    </div>
+                    <p>{address.recipient}<br />{address.street}{address.landmark ? `, ${address.landmark}` : ''}<br />{address.city}, {address.state}<br />{address.phone}</p>
+                    {editingAddressId === address.id && (
+                      <form className="account-form account-form--address" onSubmit={(event) => { event.preventDefault(); updateAddress.mutate(); }}>
+                        {(['label', 'recipient', 'phone', 'street', 'city', 'state', 'landmark'] as const).map((field) => (
+                          <label key={field}>{field === 'label' ? 'Address label' : field.charAt(0).toUpperCase() + field.slice(1)}
+                            <Input required={field !== 'landmark'} value={editingAddress[field] ?? ''} onChange={(event) => setEditingAddress((value) => ({ ...value, [field]: event.target.value }))} />
+                          </label>
+                        ))}
+                        <label className="account-checkbox"><input type="checkbox" checked={editingAddress.isDefault ?? false} onChange={(event) => setEditingAddress((value) => ({ ...value, isDefault: event.target.checked }))} />Make this my default address</label>
+                        <div className="account-form__actions">
+                          {updateAddress.isError && <PageError message="Could not update this address." />}
+                          <Button type="submit" disabled={updateAddress.isPending}>{updateAddress.isPending ? 'Saving…' : 'Save address'}</Button>
+                          <Button type="button" variant="secondary" onClick={() => setEditingAddressId('')}>Cancel</Button>
+                        </div>
+                      </form>
+                    )}
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <div className="account-address-empty"><strong>No saved addresses yet</strong><span>Add a delivery address below to speed up your next checkout.</span></div>
+            )}
+            {deleteAddress.isError && <PageError message="Could not remove this address." />}
+            <details className="account-add-address">
+              <summary>Add a delivery address</summary>
+              <form className="account-form account-form--address" onSubmit={(event) => { event.preventDefault(); addressMutation.mutate(); }}>
+                {(['label', 'recipient', 'phone', 'street', 'city', 'state', 'landmark'] as const).map((field) => (
+                  <label key={field}>{field === 'label' ? 'Address label' : field.charAt(0).toUpperCase() + field.slice(1)}
+                    <Input required={field !== 'landmark'} value={newAddress[field] ?? ''} onChange={(event) => setNewAddress((value) => ({ ...value, [field]: event.target.value }))} />
+                  </label>
+                ))}
+                <label className="account-checkbox"><input type="checkbox" checked={newAddress.isDefault} onChange={(event) => setNewAddress((value) => ({ ...value, isDefault: event.target.checked }))} />Make this my default address</label>
+                <div className="account-form__actions">
+                  {addressMutation.isError && <PageError message="Could not add this address." />}
+                  <Button type="submit" disabled={addressMutation.isPending}>{addressMutation.isPending ? 'Adding…' : 'Add address'}</Button>
+                </div>
+              </form>
+            </details>
+          </section>
+
+          <section className="customer-panel account-card" id="account-security">
+            <div className="account-card__heading">
+              <div><span className="account-card__eyebrow">SECURITY</span><h2>Password & security</h2></div>
+              <p>Choose a strong password to help keep your account secure.</p>
+            </div>
+            <form className="account-form account-form--security" onSubmit={(event) => { event.preventDefault(); passwordMutation.mutate(); }}>
+              <label>
+                Current password
+                <Input type="password" autoComplete="current-password" required value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} />
+              </label>
+              <label>
+                New password
+                <Input type="password" autoComplete="new-password" minLength={8} required value={newPassword} onChange={(event) => setNewPassword(event.target.value)} />
+                <small className="account-field-hint">Use at least 8 characters.</small>
+              </label>
+              <div className="account-form__actions">
+                {passwordMutation.isSuccess && <p role="status" className="account-success">Your password has been updated.</p>}
+                {passwordMutation.isError && <PageError message="Could not change your password. Check your current password and try again." />}
+                <Button type="submit" disabled={passwordMutation.isPending}>{passwordMutation.isPending ? 'Updating…' : 'Update password'}</Button>
+              </div>
+            </form>
+          </section>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 type LoginReturn = { from?: string | { pathname?: string; search?: string; hash?: string } };
@@ -472,13 +797,13 @@ function destination(userRole?: string, state?: LoginReturn) {
 }
 
 export function LoginPage() {
-  const { login, user } = useAuth();
+  const { login, user } = useAuth('customer');
   const location = useLocation();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   if (user) return <NavigateAfterLogin role={user.role} from={location.state as LoginReturn | null} />;
-  return <div className="storefront-page"><div className="customer-auth-card"><span className="section-eyebrow">Welcome back</span><PageTitle>Sign in</PageTitle><form className="space-y-4" onSubmit={async (event) => { event.preventDefault(); setError(''); try { await login(email, password); } catch { setError('Email or password is incorrect.'); } }}><label>Email<Input required type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} /></label><label>Password<Input required type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>{error && <PageError message={error} />}<Button type="submit">Sign in</Button></form><div className="customer-auth-card__links"><Link to="/forgot-password">Forgot password?</Link><Link to="/register">Create account</Link></div></div></div>;
+  return <div className="storefront-page"><div className="customer-auth-card"><span className="section-eyebrow">Welcome back</span><PageTitle>Sign in</PageTitle><form className="space-y-4" onSubmit={async (event) => { event.preventDefault(); setError(''); try { await login(email, password); } catch (loginError) { setError(loginError instanceof ApiClientError && loginError.status === 403 ? loginError.message : 'Email or password is incorrect.'); } }}><label>Email<Input required type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} /></label><label>Password<Input required type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>{error && <PageError message={error} />}<Button type="submit">Sign in</Button></form><div className="customer-auth-card__links"><Link to="/forgot-password">Forgot password?</Link><Link to="/register">Create account</Link></div><p className="mt-5 text-sm text-gray-600">Staff? <Link to="/admin/login" className="font-semibold underline">Staff sign in</Link></p></div></div>;
 }
 
 function NavigateAfterLogin({ role, from }: { role: string; from: LoginReturn | null }) {
@@ -487,7 +812,7 @@ function NavigateAfterLogin({ role, from }: { role: string; from: LoginReturn | 
 }
 
 export function RegisterPage() {
-  const { register, user } = useAuth();
+  const { register, user } = useAuth('customer');
   const navigate = useNavigate();
   const location = useLocation();
   const [fields, setFields] = useState({ name: '', email: '', phone: '', password: '' });

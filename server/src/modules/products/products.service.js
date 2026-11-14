@@ -111,7 +111,14 @@ export async function createProduct(input) {
   if (input.salePrice !== undefined && input.salePrice >= input.price) {
     throw new ApiError(400, 'VALIDATION_ERROR', 'salePrice must be below price');
   }
-  return Product.create({ ...input, slug: await uniqueSlug(input.name), ratingAverage: 0, ratingCount: 0 });
+  const { modelUrl, ...fields } = input;
+  return Product.create({
+    ...fields,
+    ...(modelUrl ? { modelUrl } : {}),
+    slug: await uniqueSlug(input.name),
+    ratingAverage: 0,
+    ratingCount: 0,
+  });
 }
 
 export async function updateProduct(id, input) {
@@ -127,7 +134,10 @@ export async function updateProduct(id, input) {
       throw new ApiError(400, 'VALIDATION_ERROR', 'Variant SKUs must be unique');
     }
   }
-  Object.assign(product, input);
+  const { modelUrl, ...fields } = input;
+  Object.assign(product, fields);
+  if (modelUrl === null) product.modelUrl = undefined;
+  else if (modelUrl !== undefined) product.modelUrl = modelUrl;
   if (input.name) product.slug = await uniqueSlug(input.name, product.id);
   await product.save();
   return product;
