@@ -20,7 +20,6 @@ const LazyProductViewer3D = lazy(() => import('./ProductViewer3D'));
 
 function isProductViewerAvailable() {
   if (typeof window === 'undefined' || typeof document === 'undefined') return false;
-  if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return false;
   const connection = (navigator as Navigator & { connection?: { saveData?: boolean } }).connection;
   if (connection?.saveData) return false;
   try {
@@ -257,13 +256,21 @@ export function ProductPage() {
     mutationFn: () => customerApi.createReview(product.data!.id, { rating: Number(rating), comment }),
     onSuccess: () => { setComment(''); void client.invalidateQueries({ queryKey: ['reviews', product.data?.id] }); },
   });
+  const modelUrl = product.data?.modelUrl;
   const backToShop = <Link className="product-detail__back" to="/shop">← Back to shop</Link>;
+  function preloadProductViewer(modelUrl?: string) {
+    if (!isProductViewerAvailable()) return;
+    void import('./ProductViewer3D')
+      .then(({ preloadProductModel }) => { if (modelUrl) preloadProductModel(modelUrl); })
+      .catch((error: unknown) => console.error('Unable to preload the product 3D model.', error));
+  }
   function chooseViewer(mode: 'photos' | '3d') {
     if (mode === '3d' && !isProductViewerAvailable()) {
       setViewerMode('photos');
       setViewerNotice('3D preview is unavailable with this device or display preference. Showing photos instead.');
       return;
     }
+    if (mode === '3d') preloadProductViewer(modelUrl);
     setViewerMode(mode);
     setViewerNotice('');
   }
@@ -280,15 +287,21 @@ export function ProductPage() {
     <div className="storefront-page product-detail grid">
       {backToShop}
       <div className="product-detail__gallery">
-        {product.data.modelUrl && <div className="product-detail__view-toggle" role="group" aria-label="Product view">
+        <div className="product-detail__view-toggle" role="group" aria-label="Product view">
           <button type="button" aria-pressed={viewerMode === 'photos'} onClick={() => chooseViewer('photos')}>Photos</button>
-          <button type="button" aria-pressed={viewerMode === '3d'} onClick={() => chooseViewer('3d')}>3D</button>
-        </div>}
-        {product.data.modelUrl && viewerMode === '3d' ? (
+          <button
+            type="button"
+            aria-pressed={viewerMode === '3d'}
+            onPointerEnter={() => preloadProductViewer(modelUrl)}
+            onFocus={() => preloadProductViewer(modelUrl)}
+            onClick={() => chooseViewer('3d')}
+          >3D</button>
+        </div>
+        {viewerMode === '3d' ? (
           <ProductViewerErrorBoundary onError={fallBackToPhotos}>
-            <Suspense fallback={<div className="product-detail__viewer-loading" role="status">Loading 3D model…</div>}>
+            <Suspense fallback={<div className="product-detail__viewer-loading" role="status">Loading 3D preview…</div>}>
               <LazyProductViewer3D
-                modelUrl={product.data.modelUrl}
+                modelUrl={modelUrl}
                 productName={product.data.name}
                 onError={fallBackToPhotos}
               />
@@ -300,7 +313,9 @@ export function ProductPage() {
             <img src={selectedImageUrl} alt={product.data.name} onError={() => setFailedImageUrl(selectedImageUrl)} />
           </button>}
         </div>}
-        {viewerNotice && <p className="product-detail__viewer-notice" role="status">{viewerNotice}</p>}
+        {viewerNotice
+          ? <p className="product-detail__viewer-notice" role="status">{viewerNotice}</p>
+          : viewerMode === '3d' && !modelUrl && <p className="product-detail__viewer-notice" role="note">Generic 3D shoe preview; not an exact model of this product.</p>}
         <div className="product-detail__thumbs">{product.data.images.map((image, index) => <button key={image} type="button" aria-current={imageIndex === index} aria-label={`View image ${index + 1}`} onClick={() => { setImageIndex(index); chooseViewer('photos'); }}><img src={resolveAssetUrl(image)} alt="" /></button>)}</div>
       </div>
       <section className="product-detail__info">

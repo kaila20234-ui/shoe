@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { isValidProductModelUrl } from '../utils/productModelUrl.js';
 
 function documentTransform(_document, value) {
   if (value._id !== undefined) value.id = String(value._id);
@@ -62,7 +63,14 @@ const productSchema = new mongoose.Schema({
   price: { type: Number, required: true, min: 1 },
   salePrice: { type: Number, min: 1 },
   images: { type: [String], required: true, validate: (items) => items.length > 0 },
-  modelUrl: { type: String, trim: true },
+  modelUrl: {
+    type: String,
+    trim: true,
+    validate: {
+      validator: (value) => value == null || isValidProductModelUrl(value),
+      message: 'modelUrl must be an HTTPS .glb or .gltf URL, or an uploaded GLB model path',
+    },
+  },
   variants: { type: [variantSchema], required: true, validate: (items) => items.length > 0 },
   isActive: { type: Boolean, default: true },
   ratingAverage: { type: Number, min: 0, max: 5, default: 0 },

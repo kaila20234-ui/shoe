@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import ApiError from '../../utils/ApiError.js';
 import { createImageUpload } from '../../utils/imageUpload.js';
+import { uploadGlb, validateGlbFile } from '../../utils/modelUpload.js';
 import { validate } from '../../middleware/validate.js';
 import asyncHandler from '../../utils/asyncHandler.js';
 import * as controller from './admin.controller.js';
@@ -24,6 +25,11 @@ router.post('/uploads/image', imageUpload.single('image'), (req, _res, next) => 
   if (!req.file) return next(new ApiError(400, 'VALIDATION_ERROR', 'Image file is required'));
   return next();
 }, asyncHandler(controller.uploadImage));
+router.post('/uploads/model', uploadGlb, asyncHandler(async (req, res) => {
+  if (!req.file) throw new ApiError(400, 'VALIDATION_ERROR', 'GLB model file is required');
+  await validateGlbFile(req.file);
+  return controller.uploadModel(req, res);
+}));
 router.get('/orders', validate({ query: adminOrderListSchema }), asyncHandler(controller.listOrders));
 router.get('/orders/:id', asyncHandler(controller.getOrder));
 router.patch('/orders/:id/status', validate({ body: adminOrderStatusSchema }), asyncHandler(controller.changeOrderStatus));

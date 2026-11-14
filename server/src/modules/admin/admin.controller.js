@@ -51,6 +51,12 @@ export async function uploadImage(req, res) {
   return ok(res, { url });
 }
 
+export async function uploadModel(req, res) {
+  const url = `/uploads/models/${req.file.filename}`;
+  await audited(req, 'model.upload', 'model', req.file.filename);
+  return ok(res, { url });
+}
+
 export async function listOrders(req, res) {
   const result = await service.listAdminOrders(req.query);
   return ok(res, result.items, { meta: result.meta });
