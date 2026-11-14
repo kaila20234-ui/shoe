@@ -4,7 +4,7 @@ import { Bounds, Html, OrbitControls, useGLTF } from '@react-three/drei';
 import * as THREE from 'three';
 import { resolveAssetUrl } from '../shared/lib/assetUrl';
 
-useGLTF.setDecoderPath('/draco/');
+useGLTF.setDecoderPath(`${import.meta.env.BASE_URL}draco/`);
 
 type ProductViewerProps = {
   modelUrl: string;

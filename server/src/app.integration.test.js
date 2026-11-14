@@ -106,6 +106,15 @@ test('Express Paystack webhook rejects a bad signature', async () => {
   assert.equal(response.status, 401);
 });
 
+test('Content Security Policy permits same-origin Draco assets and Draco workers', async () => {
+  const response = await fetch(`${origin}/api/health`);
+  const policy = response.headers.get('content-security-policy');
+
+  assert.match(policy, /default-src 'self'/);
+  assert.match(policy, /script-src 'self' 'wasm-unsafe-eval'/);
+  assert.match(policy, /worker-src 'self' blob:/);
+});
+
 function configureUser(t, role) {
   t.mock.method(User, 'findById', async (id) => ({
     id: String(id),

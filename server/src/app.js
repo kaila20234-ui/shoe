@@ -38,7 +38,15 @@ function authRateLimit({ windowMs = 15 * 60 * 1000, max = 100 } = {}) {
 
 const app = express();
 app.disable('x-powered-by');
-app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
+  contentSecurityPolicy: {
+    directives: {
+      scriptSrc: ["'self'", "'wasm-unsafe-eval'"],
+      workerSrc: ["'self'", 'blob:'],
+    },
+  },
+}));
 app.use((req, res, next) => {
   const allowedOrigins = new Set([
     process.env.CLIENT_URL || 'http://localhost:5173',
