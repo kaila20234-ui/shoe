@@ -258,10 +258,10 @@ export function ProductPage() {
   });
   const modelUrl = product.data?.modelUrl;
   const backToShop = <Link className="product-detail__back" to="/shop">← Back to shop</Link>;
-  function preloadProductViewer(modelUrl?: string) {
+  function preloadProductViewer(modelUrl: string) {
     if (!isProductViewerAvailable()) return;
     void import('./ProductViewer3D')
-      .then(({ preloadProductModel }) => { if (modelUrl) preloadProductModel(modelUrl); })
+      .then(({ preloadProductModel }) => preloadProductModel(modelUrl))
       .catch((error: unknown) => console.error('Unable to preload the product 3D model.', error));
   }
   function chooseViewer(mode: 'photos' | '3d') {
@@ -270,7 +270,7 @@ export function ProductPage() {
       setViewerNotice('3D preview is unavailable with this device or display preference. Showing photos instead.');
       return;
     }
-    if (mode === '3d') preloadProductViewer(modelUrl);
+    if (mode === '3d' && modelUrl) preloadProductViewer(modelUrl);
     setViewerMode(mode);
     setViewerNotice('');
   }
@@ -287,17 +287,17 @@ export function ProductPage() {
     <div className="storefront-page product-detail grid">
       {backToShop}
       <div className="product-detail__gallery">
-        <div className="product-detail__view-toggle" role="group" aria-label="Product view">
+        {modelUrl && <div className="product-detail__view-toggle" role="group" aria-label="Product view">
           <button type="button" aria-pressed={viewerMode === 'photos'} onClick={() => chooseViewer('photos')}>Photos</button>
           <button
             type="button"
             aria-pressed={viewerMode === '3d'}
-            onPointerEnter={() => preloadProductViewer(modelUrl)}
-            onFocus={() => preloadProductViewer(modelUrl)}
+            onPointerEnter={() => { if (modelUrl) preloadProductViewer(modelUrl); }}
+            onFocus={() => { if (modelUrl) preloadProductViewer(modelUrl); }}
             onClick={() => chooseViewer('3d')}
           >3D</button>
-        </div>
-        {viewerMode === '3d' ? (
+        </div>}
+        {modelUrl && viewerMode === '3d' ? (
           <ProductViewerErrorBoundary onError={fallBackToPhotos}>
             <Suspense fallback={<div className="product-detail__viewer-loading" role="status">Loading 3D preview…</div>}>
               <LazyProductViewer3D
@@ -313,9 +313,7 @@ export function ProductPage() {
             <img src={selectedImageUrl} alt={product.data.name} onError={() => setFailedImageUrl(selectedImageUrl)} />
           </button>}
         </div>}
-        {viewerNotice
-          ? <p className="product-detail__viewer-notice" role="status">{viewerNotice}</p>
-          : viewerMode === '3d' && !modelUrl && <p className="product-detail__viewer-notice" role="note">Generic 3D shoe preview; not an exact model of this product.</p>}
+        {viewerNotice && <p className="product-detail__viewer-notice" role="status">{viewerNotice}</p>}
         <div className="product-detail__thumbs">{product.data.images.map((image, index) => <button key={image} type="button" aria-current={imageIndex === index} aria-label={`View image ${index + 1}`} onClick={() => { setImageIndex(index); chooseViewer('photos'); }}><img src={resolveAssetUrl(image)} alt="" /></button>)}</div>
       </div>
       <section className="product-detail__info">
