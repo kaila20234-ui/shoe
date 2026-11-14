@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { isValidProductModelUrl } from '../../utils/productModelUrl.js';
 
 const variantSchema = z.object({
   sku: z.string().trim().min(1),
@@ -6,6 +7,11 @@ const variantSchema = z.object({
   color: z.string().trim().min(1),
   stock: z.number().int().min(0),
 });
+
+const modelUrlSchema = z.string().refine(
+  isValidProductModelUrl,
+  'modelUrl must be an HTTPS .glb or .gltf URL, or an uploaded GLB model path',
+).nullable().optional();
 
 const productFieldsSchema = z.object({
   name: z.string().trim().min(1).max(160),
@@ -15,7 +21,7 @@ const productFieldsSchema = z.object({
   type: z.enum(['sneakers', 'formal', 'sandals', 'boots', 'sports']),
   price: z.number().int().positive(),
   salePrice: z.number().int().positive().optional(),
-  modelUrl: z.string().url().nullable().optional(),
+  modelUrl: modelUrlSchema,
   images: z.array(z.union([
     z.string().url(),
     z.string().regex(/^\/uploads\/products\/[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}\.(?:jpg|png|webp)$/i),

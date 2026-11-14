@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import type { Audience, Product, ShoeType } from '../../shared/types';
 import { api } from '../../shared/api/client';
@@ -8,6 +8,16 @@ import { Section } from '../components/ui';
 
 const audiences: Audience[] = ['men', 'women', 'kids'];
 const shoeTypes: ShoeType[] = ['sneakers', 'formal', 'sandals', 'boots', 'sports'];
+
+function isValidModelUrl(value: string) {
+  if (/^\/uploads\/models\/[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}\.glb$/i.test(value)) return true;
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' && /\.(?:glb|gltf)$/i.test(url.pathname);
+  } catch {
+    return false;
+  }
+}
 
 export function ProductEditorPage() {
   const { id } = useParams();
@@ -24,6 +34,8 @@ export function ProductEditorPage() {
   const [price, setPrice] = useState(existing ? String(existing.price / 100) : '');
   const [salePrice, setSalePrice] = useState(existing?.salePrice ? String(existing.salePrice / 100) : '');
   const [imageFile, setImageFile] = useState<File | null>(null);
+  const [modelFile, setModelFile] = useState<File | null>(null);
+  const modelFileInputRef = useRef<HTMLInputElement>(null);
   const [sku, setSku] = useState(existing?.variants[0]?.sku ?? '');
   const [size, setSize] = useState(existing ? String(existing.variants[0]?.size ?? '') : '');
   const [color, setColor] = useState(existing?.variants[0]?.color ?? '');
@@ -36,6 +48,8 @@ export function ProductEditorPage() {
     setBrand(existing.brand);
     setDescription(existing.description);
     setModelUrl(existing.modelUrl ?? '');
+    setModelFile(null);
+    if (modelFileInputRef.current) modelFileInputRef.current.value = '';
     setAudience(existing.audience);
     setType(existing.type);
     setPrice(String(existing.price / 100));
@@ -49,6 +63,11 @@ export function ProductEditorPage() {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const normalizedModelUrl = modelUrl.trim();
+    if (!modelFile && normalizedModelUrl && !isValidModelUrl(normalizedModelUrl)) {
+      setError('3D model URL must be an HTTPS link ending in .glb or .gltf.');
+      return;
+    }
     const priceKobo = Math.round(Number(price) * 100);
     const salePriceKobo = salePrice === '' ? undefined : Math.round(Number(salePrice) * 100);
     if (!name.trim() || !description.trim() || !brand.trim() || !sku.trim() || !color.trim() || (!existing?.images.length && !imageFile) || !Number.isInteger(priceKobo) || priceKobo <= 0) {
@@ -83,10 +102,17 @@ export function ProductEditorPage() {
         const { data: uploaded } = await api.post<{ url: string }>('/admin/uploads/image', formData);
         images = [uploaded.url, ...images.slice(1)];
       }
+      let savedModelUrl = normalizedModelUrl;
+      if (modelFile) {
+        const formData = new FormData();
+        formData.append('model', modelFile);
+        const { data: uploaded } = await api.post<{ url: string }>('/admin/uploads/model', formData);
+        savedModelUrl = uploaded.url;
+      }
       const input = {
         name: name.trim(),
         description: description.trim(),
-        ...(modelUrl.trim() ? { modelUrl: modelUrl.trim() } : existing ? { modelUrl: null } : {}),
+        ...(savedModelUrl ? { modelUrl: savedModelUrl } : existing ? { modelUrl: null } : {}),
         brand: brand.trim(),
         audience,
         type,
@@ -134,7 +160,8 @@ export function ProductEditorPage() {
             <label>Product name<input required value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. Classic leather trainer" /></label>
             <label>Brand<input required value={brand} onChange={(event) => setBrand(event.target.value)} placeholder="e.g. Northline" /></label>
             <label className="is-wide">Description<textarea value={description} onChange={(event) => setDescription(event.target.value)} rows={3} placeholder="Describe the materials, fit, and standout details." /></label>
-            <label className="is-wide">3D model URL <span className="admin-field-suffix">Optional · .glb</span><input type="url" value={modelUrl} onChange={(event) => setModelUrl(event.target.value)} placeholder="https://example.com/shoe.glb" /></label>
+            <label className="is-wide">3D model URL <span className="admin-field-suffix">Optional · HTTPS .glb or .gltf</span><input type="text" inputMode="url" value={modelUrl} onChange={(event) => { setModelUrl(event.target.value); if (modelFile) { setModelFile(null); if (modelFileInputRef.current) modelFileInputRef.current.value = ''; } }} placeholder="https://example.com/shoe.glb" /></label>
+            <label className="is-wide">Or upload a GLB file <span className="admin-field-suffix">Maximum 20 MB</span><input ref={modelFileInputRef} type="file" accept=".glb,model/gltf-binary,application/octet-stream" onChange={(event) => { const file = event.target.files?.[0] ?? null; setModelFile(file); if (file) setModelUrl(''); }} /></label>
             <label>Audience<select value={audience} onChange={(event) => setAudience(event.target.value as Audience)}>{audiences.map((value) => <option key={value}>{value}</option>)}</select></label>
             <label>Shoe type<select value={type} onChange={(event) => setType(event.target.value as ShoeType)}>{shoeTypes.map((value) => <option key={value}>{value}</option>)}</select></label>
           </div>
