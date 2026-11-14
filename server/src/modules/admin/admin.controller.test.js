@@ -80,7 +80,7 @@ test('updateProduct deletes the previous uploaded model when clearing it', async
   }
 });
 
-test('deleteProduct removes the previous uploaded model', async (t) => {
+test('deleteProduct preserves the uploaded model for a soft-deleted product', async (t) => {
   const { filePath, modelUrl } = await createUploadedModel();
   const product = setupProductMocks(t, modelUrl);
   const response = makeResponse();
@@ -88,7 +88,8 @@ test('deleteProduct removes the previous uploaded model', async (t) => {
     await deleteProduct(makeRequest(), response);
     assert.equal(response.statusCode, 200);
     assert.equal(product.isActive, false);
-    await assertFileRemoved(filePath);
+    assert.equal(product.modelUrl, modelUrl);
+    await assert.doesNotReject(() => access(filePath));
   } finally {
     await rm(filePath, { force: true });
   }

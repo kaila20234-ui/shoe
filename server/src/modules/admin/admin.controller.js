@@ -49,9 +49,7 @@ export async function updateProduct(req, res) {
 }
 
 export async function deleteProduct(req, res) {
-  const previousModel = await Product.findById(req.params.id, 'modelUrl');
   const product = await service.updateProduct(req.params.id, { isActive: false });
-  await removeOrphanedModel(previousModel?.modelUrl);
   await audited(req, 'product.delete', 'product', product.id);
   return ok(res, {});
 }

@@ -156,12 +156,23 @@ test('admin can upload and retrieve a valid GLB model', async (t) => {
   assert.match(result.data.url, /^\/uploads\/models\/[0-9a-f-]{36}\.glb$/i);
   const filePath = resolve(uploadsDirectory, 'models', basename(result.data.url));
   try {
+    const clientOrigin = 'http://localhost:5173';
+    const apiResponse = await fetch(`${origin}/api/health`, {
+      headers: { origin: clientOrigin },
+    });
     const storedResponse = await fetch(`${origin}${result.data.url}`, {
-      headers: { origin: 'http://localhost:5173' },
+      headers: { origin: clientOrigin },
     });
     assert.equal(storedResponse.status, 200);
-    assert.equal(storedResponse.headers.get('access-control-allow-origin'), 'http://localhost:5173');
-    assert.equal(storedResponse.headers.get('vary'), 'Origin');
+    for (const header of [
+      'access-control-allow-origin',
+      'access-control-allow-credentials',
+      'access-control-allow-headers',
+      'access-control-allow-methods',
+      'vary',
+    ]) {
+      assert.equal(storedResponse.headers.get(header), apiResponse.headers.get(header), header);
+    }
     assert.equal(storedResponse.headers.get('content-type'), 'model/gltf-binary');
     assert.deepEqual(Buffer.from(await storedResponse.arrayBuffer()), content);
   } finally {
