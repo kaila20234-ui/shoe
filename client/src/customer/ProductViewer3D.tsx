@@ -79,11 +79,6 @@ class ModelErrorBoundary extends Component<{
   }
 }
 
-function CanvasFallback({ onError }: { onError: () => void }) {
-  useEffect(() => onError(), [onError]);
-  return <div className="product-detail__viewer-loading" role="status">3D preview unavailable. Showing photos instead.</div>;
-}
-
 export default function ProductViewer3D({ modelUrl, productName, onError }: ProductViewerProps) {
   const prefersReducedMotion = usePrefersReducedMotion();
 
@@ -93,7 +88,7 @@ export default function ProductViewer3D({ modelUrl, productName, onError }: Prod
         camera={{ position: [0, 0, 4], fov: 40 }}
         dpr={[1, 1.5]}
         gl={{ alpha: true, antialias: true }}
-        fallback={<CanvasFallback onError={onError} />}
+        fallback={<div className="product-detail__viewer-loading" role="status">3D preview unavailable. Showing photos instead.</div>}
       >
         <color attach="background" args={['#f7f5ef']} />
         <ambientLight intensity={1.2} />

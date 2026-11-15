@@ -24,7 +24,7 @@ function supportsWebGL() {
   if (webGLSupported !== undefined) return webGLSupported;
   try {
     const canvas = document.createElement('canvas');
-    const context = canvas.getContext('webgl') || canvas.getContext('webgl2');
+    const context = canvas.getContext('webgl2');
     webGLSupported = Boolean(context);
     context?.getExtension('WEBGL_lose_context')?.loseContext();
   } catch {
@@ -277,7 +277,7 @@ export function ProductPage() {
   function chooseViewer(mode: 'photos' | '3d') {
     if (mode === '3d' && !isProductViewerAvailable()) {
       setViewerMode('photos');
-      setViewerNotice('3D preview is unavailable with this device or display preference. Showing photos instead.');
+      setViewerNotice('3D preview requires WebGL 2, which is unavailable in this browser or while data saving is enabled. Showing photos instead.');
       return;
     }
     if (mode === '3d' && modelUrl) preloadProductViewer(modelUrl);
@@ -600,7 +600,7 @@ export function OrderDetailPage() {
   const order = orderQuery.data;
   const canCancel = order.status === 'pending_payment' || order.status === 'paid';
   const canVerifyPayment = order.paymentMethod === 'paystack' && order.status === 'pending_payment';
-  return <div className="storefront-page order-detail-page"><span className="section-eyebrow">Order details</span><PageTitle>{order.orderNumber}</PageTitle>
+  return <div className="storefront-page order-detail-page"><Link className="customer-back-link" to="/">← Back to home</Link><span className="section-eyebrow">Order details</span><PageTitle>{order.orderNumber}</PageTitle>
     <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-4"><div><StatusBadge status={order.status} /><p className="mt-2 text-sm text-gray-600">Placed {formatDateTime(order.createdAt)}</p></div><div className="flex flex-wrap gap-2">{canVerifyPayment && <Button disabled={paymentVerification.isPending} onClick={() => paymentVerification.mutate(order.orderNumber)}>{paymentVerification.isPending ? 'Checking payment…' : 'Check payment status'}</Button>}{canCancel && <Button disabled={cancel.isPending} onClick={() => { if (window.confirm('Cancel this order?')) cancel.mutate(); }}>Cancel order</Button>}</div></div>
     {cancel.isError && <PageError message="This order could not be cancelled." />}
     {paymentVerification.isError && <PageError message="Payment is not confirmed yet. Please try again shortly." />}
