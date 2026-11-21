@@ -9,6 +9,7 @@ import { DiscountsPage } from './pages/DiscountsPage';
 import { DeliveryPage } from './pages/DeliveryPage';
 import { ReviewsPage } from './pages/ReviewsPage';
 import { ReturnsPage } from './pages/ReturnsPage';
+import { ComplaintsPage } from './pages/ComplaintsPage';
 import { AuditLogsPage } from './pages/AuditLogsPage';
 import { OrderDetailPage } from './pages/OrderDetailPage';
 import { AdminUsersPage } from './pages/AdminUsersPage';
@@ -27,5 +28,6 @@ export const adminRoutes: RouteObject[] = [
   { path: 'delivery', element: <DeliveryPage /> },
   { path: 'reviews', element: <ReviewsPage /> },
   { path: 'returns', element: <ReturnsPage /> },
+  { path: 'complaints', element: <ComplaintsPage /> },
   { path: 'audit-logs', element: <AuditLogsPage /> },
 ];

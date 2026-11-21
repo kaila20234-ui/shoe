@@ -3,6 +3,8 @@ import type {
   Address,
   AuthPayload,
   Cart,
+  Complaint,
+  ComplaintSubmission,
   CheckoutRequest,
   CheckoutResponse,
   DeliveryZone,
@@ -83,6 +85,31 @@ export const customerApi = {
     reason: string;
   }) => data(api.post<ReturnRequest>('/returns', body)),
   returns: () => data(api.get<ReturnRequest[]>('/returns')),
+  createComplaint: (body: {
+    category: Complaint['category'];
+    subject: string;
+    message: string;
+    orderNumber?: string;
+    contactName?: string;
+    contactEmail?: string;
+    contactPhone?: string;
+  }) => data(api.post<ComplaintSubmission>('/complaints', body)),
+  complaints: (page = 1, limit = 20) =>
+    api.get<Complaint[]>('/complaints', { params: { page, limit } }),
+  complaint: (reference: string) =>
+    data(api.get<Complaint>(`/complaints/${encodeURIComponent(reference)}`)),
+  replyToComplaint: (reference: string, content: string) =>
+    data(api.post<Complaint>(`/complaints/${encodeURIComponent(reference)}/messages`, { content })),
+  guestComplaint: (reference: string, accessToken: string) =>
+    data(api.get<Complaint>(`/complaints/guest/${encodeURIComponent(reference)}`, {
+      headers: { 'X-Complaint-Token': accessToken },
+    })),
+  replyToGuestComplaint: (reference: string, accessToken: string, content: string) =>
+    data(api.post<Complaint>(
+      `/complaints/guest/${encodeURIComponent(reference)}/messages`,
+      { content },
+      { headers: { 'X-Complaint-Token': accessToken } },
+    )),
   profile: () => data(api.get<User>('/auth/me')),
   updateProfile: (body: { name?: string; phone?: string }) =>
     data(api.patch<User>('/auth/me', body)),

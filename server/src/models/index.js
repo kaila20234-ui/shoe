@@ -203,6 +203,55 @@ const returnRequestSchema = new mongoose.Schema({
   adminNote: String,
 }, documentOptions);
 
+const complaintMessageSchema = new mongoose.Schema({
+  id: { type: String, default: () => new mongoose.Types.ObjectId().toString() },
+  senderRole: { type: String, enum: ['customer', 'admin'], required: true },
+  senderId: String,
+  senderName: { type: String, required: true },
+  content: { type: String, required: true, trim: true, maxlength: 5000 },
+  isInternal: { type: Boolean, default: false },
+  createdAt: { type: Date, default: Date.now },
+}, { _id: false });
+
+const complaintStatusHistorySchema = new mongoose.Schema({
+  status: {
+    type: String,
+    enum: ['submitted', 'in_review', 'awaiting_customer', 'resolved', 'closed'],
+    required: true,
+  },
+  note: String,
+  at: { type: Date, required: true },
+  byUserId: String,
+}, { _id: false });
+
+const complaintSchema = new mongoose.Schema({
+  reference: { type: String, required: true, unique: true, index: true },
+  customerId: { type: String, index: true },
+  contactName: { type: String, required: true, trim: true },
+  contactEmail: { type: String, required: true, lowercase: true, trim: true },
+  contactPhone: { type: String, trim: true },
+  guestAccessTokenHash: { type: String, select: false },
+  guestAccessTokenExpiresAt: { type: Date, select: false },
+  category: {
+    type: String,
+    enum: ['order', 'delivery', 'payment', 'product', 'account', 'other'],
+    required: true,
+  },
+  subject: { type: String, required: true, trim: true, maxlength: 120 },
+  orderNumber: { type: String, trim: true },
+  status: {
+    type: String,
+    enum: ['submitted', 'in_review', 'awaiting_customer', 'resolved', 'closed'],
+    default: 'submitted',
+    required: true,
+    index: true,
+  },
+  messages: { type: [complaintMessageSchema], default: [] },
+  statusHistory: { type: [complaintStatusHistorySchema], default: [] },
+}, documentOptions);
+complaintSchema.index({ customerId: 1, createdAt: -1 });
+complaintSchema.index({ status: 1, createdAt: -1 });
+
 const auditLogSchema = new mongoose.Schema({
   actorId: { type: String, required: true },
   actorName: { type: String, required: true },
@@ -222,4 +271,5 @@ export const Discount = mongoose.models.Discount || mongoose.model('Discount', d
 export const DeliveryZone = mongoose.models.DeliveryZone || mongoose.model('DeliveryZone', deliveryZoneSchema);
 export const Review = mongoose.models.Review || mongoose.model('Review', reviewSchema);
 export const ReturnRequest = mongoose.models.ReturnRequest || mongoose.model('ReturnRequest', returnRequestSchema);
+export const Complaint = mongoose.models.Complaint || mongoose.model('Complaint', complaintSchema);
 export const AuditLog = mongoose.models.AuditLog || mongoose.model('AuditLog', auditLogSchema);

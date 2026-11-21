@@ -269,6 +269,44 @@ export interface ReturnRequest {
   updatedAt: string;
 }
 
+export type ComplaintCategory = 'order' | 'delivery' | 'payment' | 'product' | 'account' | 'other';
+export type ComplaintStatus = 'submitted' | 'in_review' | 'awaiting_customer' | 'resolved' | 'closed';
+export interface ComplaintMessage {
+  id: string;
+  senderRole: 'customer' | 'admin';
+  senderId?: string;
+  senderName: string;
+  content: string;
+  isInternal: boolean;
+  createdAt: string;
+}
+export interface ComplaintStatusHistory {
+  status: ComplaintStatus;
+  note?: string;
+  at: string;
+  byUserId?: string;
+}
+export interface Complaint {
+  id: string;
+  reference: string;
+  customerId?: string;
+  contactName: string;
+  contactEmail: string;
+  contactPhone?: string;
+  category: ComplaintCategory;
+  subject: string;
+  orderNumber?: string;
+  status: ComplaintStatus;
+  messages: ComplaintMessage[];
+  statusHistory: ComplaintStatusHistory[];
+  createdAt: string;
+  updatedAt: string;
+}
+export interface ComplaintSubmission {
+  complaint: Complaint;
+  accessToken?: string;
+}
+
 // ---------- Admin / owner reporting ----------
 export interface AuditLog {
   id: string;

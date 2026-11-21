@@ -20,6 +20,7 @@ const navGroups: readonly { title: string; links: readonly NavigationItem[] }[] 
     ['/admin/delivery', 'Delivery zones', 'delivery'],
     ['/admin/reviews', 'Reviews', 'reviews'],
     ['/admin/returns', 'Returns', 'returns'],
+    ['/admin/complaints', 'Complaints', 'complaints'],
   ] },
   { title: 'Administration', links: [
     ['/admin/team', 'Team accounts', 'team'],
@@ -37,6 +38,7 @@ const iconPaths: Record<string, string> = {
   delivery: 'M3 6h11v11H3zM14 10h4l3 3v4h-7zM7 20a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm11 0a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z',
   reviews: 'm12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9L12 3Z',
   returns: 'M4 7h12a4 4 0 0 1 0 8H8m0 0 3-3m-3 3 3 3M5 4v3H2',
+  complaints: 'M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v9a2.5 2.5 0 0 1-2.5 2.5H10l-6 4v-4.5a2 2 0 0 1-1.5-2v-9Z M7.5 8h9m-9 4h6',
   team: 'M16 20v-1.5a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4V20m5.5-9a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm8-5v6m-3-3h6',
   audit: 'M5 4h14v16H5zM8 8h8m-8 4h8m-8 4h5',
 };

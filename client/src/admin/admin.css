@@ -261,3 +261,301 @@
   .content { padding: 0; }
   .panel { box-shadow: none; }
 }
+
+.complaint-admin-toolbar {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) repeat(2, minmax(150px, 190px));
+}
+
+.complaint-admin-layout {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.8fr) minmax(0, 1.4fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.complaint-admin-queue,
+.complaint-admin-detail {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid #e5eae5;
+  border-radius: 13px;
+  background: white;
+}
+
+.complaint-admin-queue {
+  display: grid;
+  max-height: 740px;
+  overflow-y: auto;
+}
+
+.complaint-admin-queue__item {
+  display: grid;
+  width: 100%;
+  gap: 8px;
+  border: 0;
+  border-bottom: 1px solid #edf0ed;
+  background: white;
+  padding: 14px 15px;
+  color: #33463a;
+  cursor: pointer;
+  text-align: left;
+}
+
+.complaint-admin-queue__item:hover,
+.complaint-admin-queue__item.is-selected {
+  background: #f5f8f5;
+}
+
+.complaint-admin-queue__item.is-selected {
+  box-shadow: inset 3px 0 #56785e;
+}
+
+.complaint-admin-queue__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.complaint-admin-queue__top > strong {
+  color: #405b47;
+  font-size: 0.73rem;
+}
+
+.complaint-admin-queue__subject {
+  overflow: hidden;
+  font-size: 0.86rem;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.complaint-admin-queue__meta {
+  overflow: hidden;
+  color: #849087;
+  font-size: 0.7rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.complaint-admin-pagination {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-top: 1px solid #e8ede8;
+  background: #fff;
+  padding: 10px 12px;
+  color: #7a877d;
+  font-size: 0.7rem;
+}
+
+.complaint-admin-pagination button {
+  border: 1px solid #dfe7df;
+  border-radius: 7px;
+  background: white;
+  padding: 6px 9px;
+  color: #3d5945;
+  cursor: pointer;
+  font-size: 0.7rem;
+  font-weight: 650;
+}
+
+.complaint-admin-pagination button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.complaint-admin-detail {
+  display: grid;
+  gap: 17px;
+  padding: clamp(16px, 2.2vw, 23px);
+}
+
+.complaint-admin-detail__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  border-bottom: 1px solid #edf0ed;
+  padding-bottom: 15px;
+}
+
+.complaint-admin-detail__header > div > span {
+  color: #7d8980;
+  font-size: 0.72rem;
+  text-transform: capitalize;
+}
+
+.complaint-admin-detail__header h2 {
+  margin: 6px 0 0;
+  color: #2b3d31;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1.35rem;
+  font-weight: 500;
+}
+
+.complaint-admin-contact {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+  margin: 0;
+}
+
+.complaint-admin-contact > div {
+  display: grid;
+  gap: 3px;
+}
+
+.complaint-admin-contact dt {
+  color: #859087;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.complaint-admin-contact dd {
+  margin: 0;
+  color: #4a5a4f;
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
+}
+
+.complaint-admin-contact a {
+  color: #385b45;
+}
+
+.complaint-admin-thread {
+  display: grid;
+  max-height: 410px;
+  gap: 9px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.complaint-admin-thread li {
+  border: 1px solid #e7ece7;
+  border-radius: 10px;
+  background: #fbfcfb;
+  padding: 12px;
+}
+
+.complaint-admin-thread li.is-internal {
+  border-color: #efdfbf;
+  background: #fdf8ed;
+}
+
+.complaint-admin-thread li > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.complaint-admin-thread li strong {
+  color: #405b47;
+  font-size: 0.75rem;
+}
+
+.complaint-admin-thread li time {
+  color: #89938b;
+  font-size: 0.66rem;
+}
+
+.complaint-admin-thread li p {
+  margin: 8px 0 0;
+  color: #536057;
+  font-size: 0.8rem;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.complaint-admin-status,
+.complaint-admin-reply {
+  display: grid;
+  gap: 10px;
+  border-top: 1px solid #edf0ed;
+  padding-top: 15px;
+}
+
+.complaint-admin-status {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+}
+
+.complaint-admin-status label,
+.complaint-admin-reply > label:first-child {
+  display: grid;
+  gap: 6px;
+  color: #526057;
+  font-size: 0.75rem;
+  font-weight: 650;
+}
+
+.complaint-admin-status select,
+.complaint-admin-reply textarea {
+  width: 100%;
+  min-height: 40px;
+  border: 1px solid #d8e1da;
+  border-radius: 8px;
+  background: #fff;
+  padding: 8px 10px;
+  color: #263a2e;
+  font: inherit;
+  font-size: 0.8rem;
+}
+
+.complaint-admin-reply textarea {
+  min-height: 105px;
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.complaint-admin-reply__internal {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #6d786f;
+  font-size: 0.74rem;
+}
+
+.complaint-admin-reply > .button,
+.complaint-admin-status > .button {
+  justify-self: start;
+}
+
+@media (max-width: 900px) {
+  .complaint-admin-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .complaint-admin-queue {
+    max-height: 390px;
+  }
+}
+
+@media (max-width: 680px) {
+  .complaint-admin-toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .complaint-admin-status {
+    grid-template-columns: 1fr;
+    justify-items: start;
+  }
+
+  .complaint-admin-status label {
+    width: 100%;
+  }
+
+  .complaint-admin-detail__header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}

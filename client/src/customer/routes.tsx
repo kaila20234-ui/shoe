@@ -3,6 +3,13 @@ import type { ReactNode } from 'react';
 import { CustomerLayout } from '../shared/layout/CustomerLayout';
 import { RequireAuth } from '../shared/auth/guards';
 import './customer.css';
+import { CustomerInfoPage } from './CustomerInfoPage';
+import {
+  ComplaintPage,
+  CustomerComplaintDetailPage,
+  CustomerComplaintsPage,
+  GuestComplaintPage,
+} from './complaints';
 import {
   CartPage,
   CheckoutPage,
@@ -44,6 +51,13 @@ export const customerRoutes: RouteObject[] = [
       { path: 'checkout/verify', element: <VerifyPaymentPage /> },
       { path: 'cart', element: <CartPage /> },
       { path: 'checkout', element: <CheckoutPage /> },
+      { path: 'contact-us', element: <CustomerInfoPage page="contact" /> },
+      { path: 'complaints', element: <ComplaintPage /> },
+      { path: 'shipping-info', element: <CustomerInfoPage page="shipping" /> },
+      { path: 'returns-exchanges', element: <CustomerInfoPage page="returns" /> },
+      { path: 'faqs', element: <CustomerInfoPage page="faqs" /> },
+      { path: 'privacy-policy', element: <CustomerInfoPage page="privacy" /> },
+      { path: 'complaints/guest/:reference', element: <GuestComplaintPage /> },
       { path: 'orders', element: customerOnly(<OrdersPage />) },
       { path: 'orders/:id', element: customerOnly(<OrderDetailPage />) },
       { path: 'wishlist', element: customerOnly(<WishlistPage />) },
@@ -55,6 +69,8 @@ export const customerRoutes: RouteObject[] = [
           { path: 'profile', element: <AccountProfilePage /> },
           { path: 'addresses', element: <AccountAddressesPage /> },
           { path: 'security', element: <AccountSecurityPage /> },
+          { path: 'complaints', element: <CustomerComplaintsPage /> },
+          { path: 'complaints/:reference', element: <CustomerComplaintDetailPage /> },
         ],
       },
     ],

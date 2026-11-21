@@ -61,6 +61,7 @@ export function AccountLayout() {
           <NavLink to="/account/profile">Personal details</NavLink>
           <NavLink to="/account/addresses">Address book <span>{savedAddresses.length}</span></NavLink>
           <NavLink to="/account/security">Password &amp; security</NavLink>
+          <NavLink to="/account/complaints">My complaints</NavLink>
           <span className="account-menu__divider" />
           <Link to="/orders">Your orders <span aria-hidden="true">↗</span></Link>
           <Link to="/wishlist">Saved items <span aria-hidden="true">↗</span></Link>

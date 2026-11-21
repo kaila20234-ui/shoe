@@ -79,7 +79,31 @@ a { color: inherit; }
 .account-dropdown__identity span { overflow: hidden; color: #718077; font-size: .75rem; text-overflow: ellipsis; white-space: nowrap; }
 .shared-layout { min-height: 100vh; display: flex; flex-direction: column; }
 .shared-layout-main { flex: 1; }
-.shared-footer { padding: 22px 16px; text-align: center; color: #718077; background: #edf2ee; }
+.shared-footer { background: #18392e; color: #dce4df; }
+.shared-footer__main { width: min(1180px, calc(100% - 32px)); margin: 0 auto; display: grid; grid-template-columns: 1.3fr .5fr .62fr .72fr 1.05fr; gap: clamp(24px, 3.5vw, 52px); padding: 58px 0 48px; }
+.shared-footer a { text-decoration: none; }
+.shared-footer__brand-name { display: inline-block; color: #f8f5ea; font-size: 1.22rem; font-weight: 800; letter-spacing: -.03em; }
+.shared-footer__brand p { max-width: 280px; margin: 16px 0 22px; color: #b7c5bc; font-size: .88rem; line-height: 1.75; }
+.shared-footer__social { display: flex; gap: 9px; }
+.shared-footer__social a { display: grid; width: 38px; height: 38px; place-items: center; border: 1px solid #ffffff24; border-radius: 50%; color: #dfe7e2; transition: border-color .15s ease, background .15s ease, transform .15s ease; }
+.shared-footer__social a:hover { border-color: #e7c99f; background: #ffffff10; transform: translateY(-2px); }
+.shared-footer__social svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.7; }
+.shared-footer__column { display: grid; align-content: start; gap: 11px; }
+.shared-footer__column h2, .shared-footer__newsletter h2 { margin: 0 0 8px; color: #f8f5ea; font-family: Georgia, "Times New Roman", serif; font-size: 1.02rem; }
+.shared-footer__column a { color: #b7c5bc; font-size: .86rem; transition: color .15s ease, transform .15s ease; }
+.shared-footer__column a:hover { color: #fff; transform: translateX(2px); }
+.shared-footer__eyebrow { display: block; margin-bottom: 8px; color: #d6b890; font-size: .62rem; font-weight: 800; letter-spacing: .16em; text-transform: uppercase; }
+.shared-footer__newsletter h2 { margin: 0; font-size: 1.35rem; }
+.shared-footer__newsletter p { margin: 8px 0 16px; color: #b7c5bc; font-size: .82rem; line-height: 1.6; }
+.shared-footer__form { display: flex; align-items: center; border-bottom: 1px solid #aabaae; }
+.shared-footer__form input { min-width: 0; flex: 1; border: 0; background: transparent; padding: 11px 2px; color: white; outline: none; font-size: .86rem; }
+.shared-footer__form input::placeholder { color: #9fb1a5; }
+.shared-footer__form button { display: grid; width: 38px; height: 38px; flex: 0 0 auto; place-items: center; border: 0; background: transparent; color: #e6cda9; cursor: pointer; }
+.shared-footer__form button svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; }
+.shared-footer__success { border: 1px solid #91b09c; border-radius: 8px; background: #ffffff0a; padding: 11px 12px; color: #e6eee9; font-size: .82rem; }
+.shared-footer__bottom { width: min(1180px, calc(100% - 32px)); margin: 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 20px; border-top: 1px solid #ffffff17; padding: 18px 0 22px; color: #98aaa0; font-size: .75rem; }
+.shared-footer__bottom div { display: flex; gap: 22px; }
+.shared-footer__bottom a:hover { color: white; }
 .shared-admin-shell { display: grid; grid-template-columns: 256px minmax(0, 1fr); min-height: 100vh; background: #f5f7f5; color: #25352c; }
 .shared-admin-side { position: sticky; top: 0; display: flex; height: 100vh; flex-direction: column; overflow-y: auto; background: #18392e; color: white; padding: 24px 15px 16px; }
 .shared-admin-brand { display: flex; align-items: center; gap: 11px; padding: 2px 9px 22px; color: white; text-decoration: none; font-size: .9rem; font-weight: 800; letter-spacing: .045em; }
@@ -125,6 +149,10 @@ a { color: inherit; }
 @media (max-width: 760px) {
   .shared-nav-inner { align-items: flex-start; flex-direction: column; padding: 14px 0; gap: 12px; }
   .shared-nav-links { gap: 12px; }
+  .shared-footer__main { grid-template-columns: 1fr 1fr; gap: 36px 24px; padding: 42px 0 36px; }
+  .shared-footer__brand { grid-column: 1 / -1; }
+  .shared-footer__newsletter { grid-column: 1 / -1; }
+  .shared-footer__bottom { align-items: flex-start; flex-direction: column; }
   .shared-admin-shell { display: block; }
   .shared-admin-side { position: fixed; z-index: 40; inset: 0 auto 0 0; width: min(280px, 86vw); height: 100dvh; transform: translateX(-105%); transition: transform 180ms ease; box-shadow: 16px 0 36px #071a1030; }
   .shared-admin-side.is-open { transform: translateX(0); }

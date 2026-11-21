@@ -10,6 +10,13 @@ import {
   adminDiscountPatchSchema, adminOrderStatusSchema, adminReviewSchema, adminReturnSchema, adminOrderListSchema,
   stockSchema, lowStockQuerySchema, reviewQuerySchema, returnQuerySchema,
 } from './admin.schemas.js';
+import * as complaintController from '../complaints/complaints.controller.js';
+import {
+  adminComplaintMessageSchema,
+  complaintReferenceSchema,
+  listComplaintsQuerySchema,
+  updateComplaintStatusSchema,
+} from '../complaints/complaints.schemas.js';
 
 const imageUpload = createImageUpload('products');
 
@@ -45,5 +52,17 @@ router.get('/reviews', validate({ query: reviewQuerySchema }), asyncHandler(cont
 router.patch('/reviews/:id', validate({ body: adminReviewSchema }), asyncHandler(controller.moderateReview));
 router.get('/returns', validate({ query: returnQuerySchema }), asyncHandler(controller.listReturns));
 router.patch('/returns/:id', validate({ body: adminReturnSchema }), asyncHandler(controller.updateReturn));
+router.get('/complaints', validate({ query: listComplaintsQuerySchema }), asyncHandler(complaintController.listAdmin));
+router.get('/complaints/:reference', validate({ params: complaintReferenceSchema }), asyncHandler(complaintController.getAdmin));
+router.patch(
+  '/complaints/:reference/status',
+  validate({ params: complaintReferenceSchema, body: updateComplaintStatusSchema }),
+  asyncHandler(complaintController.updateStatus),
+);
+router.post(
+  '/complaints/:reference/messages',
+  validate({ params: complaintReferenceSchema, body: adminComplaintMessageSchema }),
+  asyncHandler(complaintController.replyAdmin),
+);
 
 export default router;
