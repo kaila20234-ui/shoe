@@ -811,12 +811,21 @@ export function LegacyAccountPage() {
 
 type LoginReturn = { from?: string | { pathname?: string; search?: string; hash?: string } };
 
-function destination(userRole?: string, state?: LoginReturn) {
-  if (typeof state?.from === 'string' && state.from.startsWith('/') && !state.from.startsWith('//')) return state.from;
-  if (state?.from && typeof state.from === 'object') return `${state.from.pathname ?? '/'}${state.from.search ?? ''}${state.from.hash ?? ''}`;
+function destination(userRole?: string, state?: LoginReturn | null) {
+  const from = state?.from;
+  const fromPathname = typeof from === 'string'
+    ? from.split(/[?#]/, 1)[0]
+    : from?.pathname;
+  const isAuthPath = typeof fromPathname === 'string'
+    && ['/login', '/register', '/forgot-password'].some((path) => fromPathname.startsWith(path));
+
+  if (!isAuthPath) {
+    if (typeof from === 'string' && from.startsWith('/') && !from.startsWith('//')) return from;
+    if (from && typeof from === 'object') return `${from.pathname ?? '/'}${from.search ?? ''}${from.hash ?? ''}`;
+  }
   if (userRole === 'admin') return '/admin';
   if (userRole === 'owner') return '/owner';
-  return '/';
+  return '/account/profile';
 }
 
 export function LoginPage() {
@@ -841,7 +850,7 @@ export function RegisterPage() {
   const [fields, setFields] = useState({ name: '', email: '', phone: '', password: '' });
   const [error, setError] = useState('');
   if (user) return <NavigateAfterLogin role={user.role} from={location.state as LoginReturn | null} />;
-  return <div className="storefront-page"><div className="customer-auth-card"><span className="section-eyebrow">Start somewhere lovely</span><PageTitle>Create your account</PageTitle><form className="space-y-4" onSubmit={async (event) => { event.preventDefault(); setError(''); try { await register({ ...fields, phone: fields.phone || undefined }); navigate('/'); } catch { setError('We could not create your account. Check your details and try again.'); } }}><label>Name<Input required minLength={2} autoComplete="name" value={fields.name} onChange={(event) => setFields((v) => ({ ...v, name: event.target.value }))} /></label><label>Email<Input required type="email" autoComplete="email" value={fields.email} onChange={(event) => setFields((v) => ({ ...v, email: event.target.value }))} /></label><label>Phone (optional)<Input autoComplete="tel" value={fields.phone} onChange={(event) => setFields((v) => ({ ...v, phone: event.target.value }))} /></label><label>Password<Input required minLength={8} type="password" autoComplete="new-password" value={fields.password} onChange={(event) => setFields((v) => ({ ...v, password: event.target.value }))} /></label>{error && <PageError message={error} />}<Button type="submit" className="storefront-submit">Create account</Button></form><p className="mt-4 text-sm">Already have an account? <Link to="/login" className="underline">Sign in</Link></p></div></div>;
+  return <div className="storefront-page"><div className="customer-auth-card"><span className="section-eyebrow">Start somewhere lovely</span><PageTitle>Create your account</PageTitle><form className="space-y-4" onSubmit={async (event) => { event.preventDefault(); setError(''); try { await register({ ...fields, phone: fields.phone || undefined }); navigate(destination('customer', location.state as LoginReturn | null)); } catch { setError('We could not create your account. Check your details and try again.'); } }}><label>Name<Input required minLength={2} autoComplete="name" value={fields.name} onChange={(event) => setFields((v) => ({ ...v, name: event.target.value }))} /></label><label>Email<Input required type="email" autoComplete="email" value={fields.email} onChange={(event) => setFields((v) => ({ ...v, email: event.target.value }))} /></label><label>Phone (optional)<Input autoComplete="tel" value={fields.phone} onChange={(event) => setFields((v) => ({ ...v, phone: event.target.value }))} /></label><label>Password<Input required minLength={8} type="password" autoComplete="new-password" value={fields.password} onChange={(event) => setFields((v) => ({ ...v, password: event.target.value }))} /></label>{error && <PageError message={error} />}<Button type="submit" className="storefront-submit">Create account</Button></form><p className="mt-4 text-sm">Already have an account? <Link to="/login" className="underline">Sign in</Link></p></div></div>;
 }
 
 export function ForgotPasswordPage() {
